@@ -1,0 +1,10 @@
+# Filtros de búsqueda. Se aplican sobre datos ya recopilados: cambiarlos NO requiere re-scrapear.
+search:
+  property_types: [terreno, lote, chacra, campo]
+  max_price_usd: 500000
+  min_area_m2: 5000
+  airports: [BRC, CPC, EQS]
+  max_drive_minutes: 60
+  max_water_distance_m: 1000
+  waterfront_only: false
+  include_unknown_location: true

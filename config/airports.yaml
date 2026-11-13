@@ -1,0 +1,25 @@
+# V1: SOLO estos tres aeropuertos. No agregar otros.
+airports:
+  - code: BRC
+    name: "San Carlos de Bariloche"
+    region: bariloche
+    latitude: -41.1512
+    longitude: -71.1578
+    enabled: true
+  - code: CPC
+    name: "Chapelco - Aviador Carlos Campos"
+    region: chapelco
+    latitude: -40.0754
+    longitude: -71.1373
+    enabled: true
+  - code: EQS
+    name: "Esquel"
+    region: esquel
+    latitude: -42.9080
+    longitude: -71.1395
+    enabled: true
+
+geography:
+  max_drive_minutes: 60          # tiempo de manejo, NO distancia en línea recta
+  isochrone_minutes: [30, 45, 60]
+  routing_provider: openrouteservice

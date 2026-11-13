@@ -1,0 +1,15 @@
+# Fuentes semilla. Las URLs de ejemplo NO son fuentes reales verificadas: están deshabilitadas.
+# También se pueden registrar fuentes por API (POST /sources) o desde el dashboard sin tocar código.
+sources:
+  - id: inmobiliaria_bariloche_01
+    name: "Inmobiliaria Bariloche 01"
+    base_url: "https://example.com"
+    start_urls:
+      - "https://example.com/propiedades"
+    enabled: false
+    discovery_mode: auto
+    extraction_mode: auto
+    crawl_interval_hours: 24
+    max_pages_per_run: 200
+    max_depth: 5
+    region: bariloche

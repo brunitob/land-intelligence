@@ -1,0 +1,68 @@
+x-app: &app
+  build: .
+  env_file: .env
+  environment:
+    # Dentro de la red de compose la DB es "postgres" (el .env local puede apuntar a localhost).
+    DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-patagonia}:${POSTGRES_PASSWORD:-patagonia}@postgres:5432/${POSTGRES_DB:-patagonia_land}
+    API_URL: http://api:8000
+  depends_on:
+    postgres:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-patagonia}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-patagonia}
+      POSTGRES_DB: ${POSTGRES_DB:-patagonia_land}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-patagonia} -d ${POSTGRES_DB:-patagonia_land}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    <<: *app
+    command: >
+      sh -c "alembic upgrade head && python -m patagonia_land.db.seed &&
+             uvicorn patagonia_land.api.main:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  scraper-worker:
+    <<: *app
+    command: python -m patagonia_land.worker.main
+    depends_on:
+      api:
+        condition: service_healthy
+
+  scheduler:
+    <<: *app
+    command: python -m patagonia_land.scheduler.main
+    depends_on:
+      api:
+        condition: service_healthy
+
+  dashboard:
+    <<: *app
+    command: streamlit run dashboard/app.py --server.port 8501 --server.address 0.0.0.0
+    ports:
+      - "8501:8501"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:

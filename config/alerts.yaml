@@ -1,0 +1,17 @@
+# Reglas de alertas Telegram. Un cambio genera alerta si cumple AL MENOS una regla.
+alerts:
+  - name: nuevos_terrenos
+    change_types: [new_listing, relisted]
+    property_types: [terreno, lote, chacra, campo]
+    max_price_usd: 500000
+    min_area_m2: 5000
+    airports: [BRC, CPC, EQS]
+
+  - name: bajas_de_precio
+    change_types: [price_decreased]
+    property_types: [terreno, lote, chacra, campo]
+    min_pct_change: 5
+
+  - name: costa_de_agua
+    change_types: [new_listing, price_decreased]
+    water_classes: [waterfront_confirmed, waterfront_claimed, waterfront_possible]
