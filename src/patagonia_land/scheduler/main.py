@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import structlog
 from apscheduler.schedulers.blocking import BlockingScheduler
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from patagonia_land import jobs
 from patagonia_land.db.models import CrawlRun, Job, Source
@@ -37,6 +37,11 @@ def recover_stale_jobs() -> None:
         for job in s.scalars(select(Job).where(Job.status == "running",
                                                Job.started_at < datetime.now(UTC) - STALE_AFTER)):
             job.status, job.error = "failed", "timeout: job colgado (worker reiniciado?)"
+        # Corridas que quedaron "running" cuando su job ya terminó o falló (p. ej. worker reiniciado en un deploy).
+        for run in s.scalars(select(CrawlRun).outerjoin(Job, CrawlRun.job_id == Job.id).where(
+                CrawlRun.status == "running", or_(Job.id.is_(None), Job.status != "running"),
+                CrawlRun.started_at < datetime.now(UTC) - timedelta(minutes=30))):
+            run.status, run.finished_at = "failed", run.finished_at or datetime.now(UTC)
 
 
 def main() -> None:

@@ -111,6 +111,10 @@ async def run_inspect(source_id: str, job_id: int | None = None,
         if not src:
             raise ValueError(f"fuente inexistente {source_id}")
         base_url, start_urls = src.base_url, list(src.start_urls or [])
+    async with fetcher_factory() as f:
+        opens_at = await f.next_visit_start(base_url)
+    if opens_at is not None:
+        raise Deferred(opens_at, "robots.txt solo permite visitas en otra franja horaria")
     _progress(job_id)({"stage": "inspecting"})
     async with fetcher_factory() as f:
         report = await inspect_site(f, source_id, base_url, start_urls)
