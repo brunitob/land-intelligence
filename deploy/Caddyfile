@@ -1,0 +1,14 @@
+# HTTPS automático (Let's Encrypt) para SITE_ADDRESS, p. ej. land.tudominio.com o 1-2-3-4.sslip.io.
+# Todo el sitio pide usuario y contraseña (deploy/users.caddy, generado por deploy/set-password.sh).
+{$SITE_ADDRESS} {
+	encode zstd gzip
+	import /etc/caddy/users.caddy
+	reverse_proxy dashboard:8501
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		-Server
+	}
+}

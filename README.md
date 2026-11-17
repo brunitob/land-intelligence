@@ -34,7 +34,7 @@ y detecta cambios. El progreso se consulta en `GET /jobs/{id}`.
 | 2. Inspector, discovery, paginación, clasificador, extracción | ✅ validado con 3 sitios sintéticos de estructura distinta; falta validar con 3 sitios reales |
 | 3. Snapshots, cambios, deduplicación, Telegram | ✅ (Telegram requiere `TELEGRAM_*`) |
 | 4. Isócronas, tiempos, hidrografía | 🟡 isócronas/tiempos vía ORS listos (requiere `ORS_API_KEY`); hidrografía OSM pendiente |
-| 5. Dashboard | ✅ inicial (Streamlit); despliegue VPS pendiente |
+| 5. Dashboard | ✅ Streamlit (Propiedades, Destacados, Estadísticas); deploy en VPS: [docs/deploy.md](docs/deploy.md) |
 
 ## Decisiones importantes
 

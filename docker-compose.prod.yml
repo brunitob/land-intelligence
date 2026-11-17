@@ -1,0 +1,59 @@
+# Producción (VPS). Se usa SOBRE docker-compose.yml:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Diferencias con local: nada expuesto salvo Caddy (80/443, HTTPS automático + usuario y contraseña),
+# workers según WORKERS (default 2) y logs con rotación. En el servidor el .env es el de producción (deploy/env.prod.example).
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "5"}
+
+services:
+  postgres:
+    ports: !reset []          # la base no se publica: solo la red interna de compose
+    # Memoria acotada para servidores chicos (2–4 GB): la base pesa ~100 MB y la usan pocos procesos.
+    command: >
+      postgres -c shared_buffers=128MB -c effective_cache_size=512MB -c work_mem=4MB
+      -c maintenance_work_mem=64MB -c max_connections=40
+    <<: *logging
+
+  api:
+    ports: !reset []          # la API la usa el dashboard por la red interna
+    <<: *logging
+
+  scraper-worker:
+    deploy:
+      replicas: ${WORKERS:-2}   # 2 para CPX22 (4 GB); 4 si el servidor tiene 8 GB
+    <<: *logging
+
+  scheduler:
+    <<: *logging
+
+  dashboard:
+    ports: !reset []          # se accede solo a través de Caddy
+    command: >
+      streamlit run dashboard/app.py --server.port 8501 --server.address 0.0.0.0
+      --server.headless true --browser.gatherUsageStats false
+    <<: *logging
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?definí SITE_ADDRESS en el .env del servidor}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/users.caddy:/etc/caddy/users.caddy:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - dashboard
+    <<: *logging
+
+volumes:
+  caddy_data:
+  caddy_config:

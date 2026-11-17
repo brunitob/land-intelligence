@@ -1,0 +1,14 @@
+# Secretos y entorno local: nunca dentro de la imagen (se pasan con env_file en tiempo de ejecución).
+.env
+.env.*
+!.env.example
+deploy/users.caddy
+deploy/backups/
+.git
+.venv
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+data/

@@ -6,3 +6,7 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 data/
+
+# Deploy: credenciales del dashboard y backups locales del servidor
+deploy/users.caddy
+deploy/backups/
