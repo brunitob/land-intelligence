@@ -4,7 +4,7 @@
 
 ## 1. Objetivo y alcance
 
-Construir un sistema automatizado para descubrir, extraer, normalizar, analizar y monitorear publicaciones de **lotes, terrenos, chacras y campos** de inmobiliarias locales de Patagonia, exclusivamente en zonas accesibles en hasta **60 minutos en auto** desde estos tres aeropuertos:
+Construir un sistema automatizado para descubrir, extraer, normalizar, analizar y monitorear publicaciones de **lotes, terrenos, chacras y campos** de inmobiliarias locales de Patagonia, exclusivamente en zonas accesibles en hasta **150 minutos en auto** desde estos tres aeropuertos:
 
 | Código IATA | Aeropuerto | Región |
 |---|---|---|
@@ -296,7 +296,7 @@ airports:
 
 ```yaml
 geography:
-  max_drive_minutes: 60
+  max_drive_minutes: 150
   routing_provider: openrouteservice
   airports: [BRC, CPC, EQS]
 ```
@@ -347,7 +347,7 @@ search:
   max_price_usd: 500000
   min_area_m2: 5000
   airports: [BRC, CPC, EQS]
-  max_drive_minutes: 60
+  max_drive_minutes: 150
   max_water_distance_m: 1000
   waterfront_only: false
   include_unknown_location: true
@@ -476,7 +476,7 @@ patagonia-land/
 1. **Infraestructura:** Docker, PostgreSQL/PostGIS, modelos, migraciones, configuración y API.
 2. **Motor de inmobiliarias:** Site Inspector, Discovery Engine, paginación, clasificación y extracción inteligente. Validar con tres sitios de estructuras distintas.
 3. **Histórico:** snapshots, detección de cambios, deduplicación y Telegram.
-4. **Geografía:** BRC/CPC/EQS, isócronas de 60 minutos, hidrografía y clasificación de costa.
+4. **Geografía:** BRC/CPC/EQS, tiempos de manejo de hasta 150 minutos (matriz ORS; isócronas de 30/60 min solo para el mapa), hidrografía y clasificación de costa.
 5. **Dashboard y servidor:** alta de fuentes, búsqueda, mapa, monitoreo y despliegue VPS.
 
 ## 16. Criterios de aceptación V1
@@ -487,7 +487,7 @@ patagonia-land/
 - Validar y marcar ausencias sin inventar datos.
 - Guardar historial y detectar cambios de precio.
 - Revisar resultados y errores en dashboard.
-- Filtrar exclusivamente por BRC, CPC y EQS y hasta 60 minutos de conducción.
+- Filtrar exclusivamente por BRC, CPC y EQS y hasta 150 minutos de conducción.
 - Identificar evidencia textual de agua y proximidad geográfica sin confundirla con costa confirmada.
 - Ejecutar íntegramente mediante Docker Compose.
 

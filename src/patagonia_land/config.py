@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     max_response_bytes: int = 8_000_000
 
     anthropic_api_key: str = ""
-    llm_model: str = "claude-opus-5-5"
+    llm_model: str = "claude-haiku-5-5"
     llm_enabled: bool = False
 
     ors_api_key: str = ""

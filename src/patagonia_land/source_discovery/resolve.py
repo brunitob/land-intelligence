@@ -30,10 +30,13 @@ PREFIXES = ("", "inmobiliaria")
 TLDS = (".com.ar", ".com")
 CITY_WORDS = {"bariloche": "bariloche", "villalaangostura": "angostura", "elbolson": "bolson",
               "sanmartindelosandes": "martin de los andes", "junindelosandes": "junin",
-              "esquel": "esquel", "trevelin": "trevelin"}
+              "esquel": "esquel", "trevelin": "trevelin", "villatraful": "traful", "meliquina": "meliquina",
+              "alumine": "alumine", "lagopuelo": "puelo", "el-hoyo": "hoyo", "epuyen": "epuyen",
+              "cholila": "cholila"}
 CITY_SLUG = {"bariloche": "bariloche", "villalaangostura": "vla", "elbolson": "bolson",
              "sanmartindelosandes": "sma", "junindelosandes": "junin", "esquel": "esquel",
-             "trevelin": "trevelin"}
+             "trevelin": "trevelin", "villatraful": "traful", "meliquina": "meliquina", "alumine": "alumine",
+             "lagopuelo": "puelo", "el-hoyo": "elhoyo", "epuyen": "epuyen", "cholila": "cholila"}
 
 
 def _norm(s: str) -> str:

@@ -26,6 +26,12 @@ def enqueue_due_crawls() -> None:
                 log.info("scheduler.enqueued", source=src.id, job_id=job.id)
 
 
+def enqueue_geo() -> None:
+    """Tiempos de manejo a BRC/CPC/EQS (requiere ORS_API_KEY; sin clave el job no hace llamadas)."""
+    with session_scope() as s:
+        jobs.enqueue(s, "geo", None)
+
+
 def recover_stale_jobs() -> None:
     with session_scope() as s:
         for job in s.scalars(select(Job).where(Job.status == "running",
@@ -37,6 +43,7 @@ def main() -> None:
     sched = BlockingScheduler(timezone="America/Argentina/Buenos_Aires")
     sched.add_job(enqueue_due_crawls, "interval", minutes=15, next_run_time=datetime.now(UTC))
     sched.add_job(recover_stale_jobs, "interval", minutes=30)
+    sched.add_job(enqueue_geo, "interval", hours=6, next_run_time=datetime.now(UTC) + timedelta(minutes=5))
     log.info("scheduler.start")
     sched.start()
 

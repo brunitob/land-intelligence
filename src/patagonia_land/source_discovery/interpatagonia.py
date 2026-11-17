@@ -24,6 +24,13 @@ CITIES = {
     "bariloche": "bariloche",
     "villalaangostura": "bariloche",
     "elbolson": "bariloche",
+    "villatraful": "bariloche",
+    "meliquina": "chapelco",
+    "alumine": "chapelco",
+    "lagopuelo": "esquel",
+    "el-hoyo": "esquel",
+    "epuyen": "esquel",
+    "cholila": "esquel",
     "sanmartindelosandes": "chapelco",
     "junindelosandes": "chapelco",
     "esquel": "esquel",
@@ -65,10 +72,10 @@ def parse_directory(html: str, city: str) -> list[Agency]:
     return out
 
 
-async def fetch_all() -> list[Agency]:
+async def fetch_all(cities: list[str] | None = None) -> list[Agency]:
     agencies: list[Agency] = []
     async with Fetcher() as f:
-        for city in CITIES:
+        for city in cities or list(CITIES):
             res = await f.get(f"{BASE}/{city}/inmobiliario.html")
             agencies.extend(parse_directory(res.text, city))
     seen, uniq = set(), []

@@ -16,29 +16,35 @@ from patagonia_land.config import get_settings
 from patagonia_land.extraction.draft import Draft
 
 log = structlog.get_logger()
+# Si la API rechaza el pedido por configuración (400/401/403/404), no tiene sentido reintentar en cada ficha:
+# se apaga el fallback para el resto del proceso y queda registrado.
+_disabled: str | None = None
 
 SYSTEM = """Sos un extractor de datos de fichas inmobiliarias de la Patagonia argentina.
-Devolvé SOLO datos que aparezcan explícitamente en el texto. Si un dato no está, devolvé null.
+Devolvé SOLO datos que aparezcan explícitamente en el texto. Si un dato no está, devolvé "" (texto),
+0 (número) o "desconocido" (categoría).
 No infieras coordenadas, precios ni superficies. Para cada valor, copiá en *_evidence el fragmento
 literal (máx. 150 caracteres) del texto que lo respalda. Distinguí: costa propia sobre el agua,
 acceso al agua, solo vista al agua y cercanía al agua; no los confundas."""
 
 
+# Esquema plano y sin uniones con null: la API rechaza esquemas con muchos campos opcionales ("Schema is too
+# complex"). "No está en el texto" se expresa con "" (textos), 0 (números) o "desconocido" (enums).
 class LLMListing(BaseModel):
-    property_type: Literal["terreno", "lote", "chacra", "campo", "casa", "departamento", "cabaña", "local", "otro"] | None = None
-    property_type_evidence: str | None = None
-    price: float | None = None
-    currency: Literal["USD", "ARS"] | None = None
-    price_evidence: str | None = None
-    area_m2: float | None = Field(default=None, description="Superficie del terreno en m² (1 ha = 10000 m²)")
-    area_evidence: str | None = None
-    locality: str | None = None
-    location_reference: str | None = Field(default=None, description="Barrio, paraje, km de ruta, etc.")
-    location_evidence: str | None = None
-    water_relation: Literal["costa_propia", "acceso", "vista", "cercania", "ninguna_mencion"] | None = None
-    water_name: str | None = None
-    water_evidence: str | None = None
-    services: list[str] = Field(default_factory=list)
+    property_type: Literal["terreno", "lote", "chacra", "campo", "casa", "departamento", "cabaña", "local", "otro",
+                           "desconocido"]
+    property_type_evidence: str
+    price: float = Field(description="Precio total publicado; 0 si no figura")
+    currency: Literal["USD", "ARS", "desconocido"]
+    price_evidence: str
+    area_m2: float = Field(description="Superficie del terreno en m² (1 ha = 10000 m²); 0 si no figura")
+    area_evidence: str
+    locality: str
+    location_reference: str = Field(description="Barrio, paraje, km de ruta, etc.; vacío si no figura")
+    location_evidence: str
+    water_relation: Literal["costa_propia", "acceso", "vista", "cercania", "ninguna_mencion"]
+    water_name: str
+    water_evidence: str
 
 
 def _norm(s: str) -> str:
@@ -64,7 +70,8 @@ async def extract_llm(text: str, title: str, d: Draft) -> bool:
     """Completa campos faltantes. Devuelve True si se llamó al LLM."""
     settings = get_settings()
     missing = needs_llm(d)
-    if not settings.llm_available or not missing:
+    global _disabled
+    if not settings.llm_available or not missing or _disabled:
         return False
     import anthropic
 
@@ -76,12 +83,17 @@ async def extract_llm(text: str, title: str, d: Draft) -> bool:
             max_tokens=4000,
             system=SYSTEM,
             output_config={"effort": "low"},
+            # Extracción simple: sin razonamiento extendido (más barato y rápido; Haiku 5.5 lo admite).
+            **({"thinking": {"type": "disabled"}} if "haiku" in settings.llm_model else {}),
             messages=[{"role": "user", "content": f"Campos faltantes prioritarios: {', '.join(missing)}\n\n{body}"}],
             output_format=LLMListing,
         )
     except anthropic.APIStatusError as exc:
         d.warnings.append(f"LLM error {exc.status_code}")
         log.warning("llm.error", status=exc.status_code, error=str(exc))
+        if exc.status_code in (400, 401, 403, 404):
+            _disabled = f"{exc.status_code}: {str(exc)[:200]}"
+            log.error("llm.disabled", reason=_disabled)
         return True
     except anthropic.APIConnectionError as exc:
         d.warnings.append("LLM sin conexión")
@@ -93,18 +105,21 @@ async def extract_llm(text: str, title: str, d: Draft) -> bool:
     out = resp.parsed_output
     full = f"{title} {text}"
     m = "llm"
-    if out.property_type and _supported(out.property_type_evidence, full):
+    if out.property_type != "desconocido" and _supported(out.property_type_evidence, full):
         d.offer("property_type", out.property_type, m, out.property_type_evidence, 0.7)
     if out.price and _supported(out.price_evidence, full):
         d.offer("price", out.price, m, out.price_evidence, 0.7)
-        d.offer("currency", out.currency, m, out.price_evidence, 0.65)
+        if out.currency != "desconocido":
+            d.offer("currency", out.currency, m, out.price_evidence, 0.65)
     if out.area_m2 and _supported(out.area_evidence, full):
         d.offer("area_m2", out.area_m2, m, out.area_evidence, 0.7)
     if out.locality and _supported(out.location_evidence, full):
         d.offer("locality_hint", out.locality, m, out.location_evidence, 0.65)
-        d.offer("location_text", out.location_reference, m, out.location_evidence, 0.6)
+        if out.location_reference:
+            d.offer("location_text", out.location_reference, m, out.location_evidence, 0.6)
     if out.water_relation and out.water_relation != "ninguna_mencion" and _supported(out.water_evidence, full):
-        d.offer("llm_water", {"relation": out.water_relation, "name": out.water_name}, m, out.water_evidence, 0.6)
+        d.offer("llm_water", {"relation": out.water_relation, "name": out.water_name or None}, m,
+                out.water_evidence, 0.6)
     for k in ("price", "area_m2"):
         ev = getattr(out, "price_evidence" if k == "price" else "area_evidence")
         if getattr(out, k) and not _supported(ev, full):

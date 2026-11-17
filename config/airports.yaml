@@ -20,6 +20,8 @@ airports:
     enabled: true
 
 geography:
-  max_drive_minutes: 60          # tiempo de manejo, NO distancia en línea recta
-  isochrone_minutes: [30, 45, 60]
+  max_drive_minutes: 150         # tiempo de manejo, NO distancia en línea recta
+  # Polígonos para el mapa. La API pública de OpenRouteService no da isócronas en auto de más de 60 min:
+  # la pertenencia al radio de 150 min se calcula por propiedad con la matriz de tiempos.
+  isochrone_minutes: [30, 60]
   routing_provider: openrouteservice

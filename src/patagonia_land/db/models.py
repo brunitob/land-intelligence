@@ -300,3 +300,53 @@ class Alert(Base):
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = _now()
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Highlight(Base):
+    """Destacado: lista con nombre y filtros editables ("Villa", "Hectárea", "Lago").
+
+    Un anuncio está en el destacado si cumple sus filtros (si tiene alguno) o si fue fijado a mano, y no fue
+    excluido a mano. Los filtros se evalúan sobre datos ya recopilados: editarlos no requiere re-scrapear.
+    """
+
+    __tablename__ = "highlights"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(80), unique=True)
+    keywords: Mapped[list[Any]] = mapped_column(default=list)  # texto en título/descripción, sin tildes
+    match_mode: Mapped[str] = mapped_column(String(8), default="any")  # any | all (entre palabras clave)
+    zones: Mapped[list[Any]] = mapped_column(default=list)
+    property_types: Mapped[list[Any]] = mapped_column(default=list)
+    water_classes: Mapped[list[Any]] = mapped_column(default=list)
+    max_price_usd: Mapped[float | None] = mapped_column(Float)
+    min_area_m2: Mapped[float | None] = mapped_column(Float)
+    include_rentals: Mapped[bool] = mapped_column(Boolean, default=False)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = _now()
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                 onupdate=func.now(), nullable=False)
+
+
+class HighlightListing(Base):
+    """Asignación manual de un anuncio a un destacado: 'pinned' (agregado) o 'excluded' (sacado del filtro)."""
+
+    __tablename__ = "highlight_listings"
+
+    highlight_id: Mapped[int] = mapped_column(ForeignKey("highlights.id", ondelete="CASCADE"), primary_key=True)
+    listing_id: Mapped[int] = mapped_column(ForeignKey("listings.id", ondelete="CASCADE"), primary_key=True)
+    mode: Mapped[str] = mapped_column(String(10))  # pinned | excluded
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _now()
+
+
+class DriveTimeCache(Base):
+    """Minutos de manejo aeropuerto → punto (coordenadas redondeadas a ~10 m). Evita repetir pedidos a ORS:
+    los caminos no cambian entre corridas y muchos avisos comparten el centro de su localidad."""
+
+    __tablename__ = "drive_time_cache"
+
+    airport_code: Mapped[str] = mapped_column(String(8), primary_key=True)
+    lat_e4: Mapped[int] = mapped_column(Integer, primary_key=True)
+    lon_e4: Mapped[int] = mapped_column(Integer, primary_key=True)
+    minutes: Mapped[float | None] = mapped_column(Float)  # None = ORS respondió sin ruta (p. ej. sin camino)
+    computed_at: Mapped[datetime] = _now()
