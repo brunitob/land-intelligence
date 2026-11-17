@@ -120,3 +120,13 @@ def test_geo_analysis_uses_cache_and_never_clobbers_on_quota(monkeypatch):
                                                         PropertyGeoAnalysis.airport_code == "BRC"))
         assert brc.within_isochrone is True and brc.drive_minutes == 90.0  # se conservó el dato anterior
         s.delete(s.get(Property, pid))
+
+
+@requires_db
+def test_stats_endpoint_shape():
+    from patagonia_land.api.main import app
+
+    d = TestClient(app).get("/stats", params={"days": 7}).json()
+    assert {"kpis", "runs_by_day", "changes_by_day", "changes_7d", "types", "zones", "sources", "price_moves",
+            "drive"} <= d.keys()
+    assert d["kpis"]["listings_active"] >= d["kpis"]["land_active"] >= 0

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 
+import altair as alt
 import httpx
 import pandas as pd
 import pydeck as pdk
@@ -29,8 +30,8 @@ defaults = api("GET", "/search/defaults") or {}
 MAX_MIN = int(defaults.get("max_drive_minutes", 150))
 st.caption(f"Terrenos, lotes, chacras y campos a ≤{MAX_MIN} min de BRC · CPC · EQS")
 ZONES = api("GET", "/zones") or []
-tab_props, tab_hl, tab_map, tab_sources, tab_monitor = st.tabs(
-    ["Propiedades", "⭐ Destacados", "Mapa", "Fuentes", "Monitoreo"])
+tab_props, tab_hl, tab_stats, tab_map, tab_sources, tab_monitor = st.tabs(
+    ["Propiedades", "⭐ Destacados", "📊 Estadísticas", "Mapa", "Fuentes", "Monitoreo"])
 HIGHLIGHTS = api("GET", "/highlights") or []
 PTYPES = ["terreno", "lote", "chacra", "campo", "casa", "cabaña", "departamento", "local", "otro"]
 WATER = ["waterfront_confirmed", "waterfront_claimed", "waterfront_possible", "water_nearby", "water_view_only",
@@ -211,6 +212,182 @@ with tab_hl:
                     if c2.button("Restaurar", key=f"rest_{h['id']}_{x['id']}"):
                         api("DELETE", f"/highlights/{h['id']}/listings/{x['id']}")
                         st.rerun()
+
+# Paleta (tema oscuro de Streamlit): una serie = azul; estados = verde OK / rojo error, siempre con leyenda.
+SERIES, GOOD, CRITICAL = "#3987e5", "#0ca30c", "#d03b3b"
+
+CHANGE_LABELS = {"new_listing": "Nuevos", "price_decreased": "Bajó el precio", "price_increased": "Subió el precio",
+                 "removed": "Dados de baja", "area_changed": "Cambió superficie", "status_changed": "Cambió estado",
+                 "description_changed": "Cambió descripción", "relisted": "Republicado"}
+
+
+def fmt_ar(n: float | None) -> str:
+    """1234567 -> '1.234.567' (formato argentino)."""
+    return "—" if n is None or pd.isna(n) else f"{n:,.0f}".replace(",", ".")
+
+
+def hbar(data: pd.DataFrame, cat: str, val: str, cat_title: str, val_title: str) -> alt.Chart:
+    """Barras horizontales de una serie: valor en el extremo (formato argentino), tooltip por barra."""
+    data = data.assign(_lbl=data[val].map(fmt_ar))
+    h = max(120, 28 * len(data))
+    base = alt.Chart(data).encode(y=alt.Y(f"{cat}:N", sort="-x", title=None,
+                                          axis=alt.Axis(labelLimit=220, labelOverlap=False)))
+    bars = base.mark_bar(color=SERIES, cornerRadiusEnd=4, height=16).encode(
+        x=alt.X(f"{val}:Q", title=val_title, axis=alt.Axis(grid=False, labels=False, ticks=False, domain=False)),
+        tooltip=[alt.Tooltip(f"{cat}:N", title=cat_title), alt.Tooltip("_lbl:N", title=val_title)])
+    labels = base.mark_text(align="left", dx=4, color="#c3c2b7").encode(x=f"{val}:Q", text="_lbl:N")
+    return (bars + labels).properties(height=h)
+
+
+with tab_stats:
+    st_days = st.segmented_control("Período", [7, 14, 30], default=14, format_func=lambda d: f"{d} días",
+                                   key="stats_days") or 14
+    S = api("GET", "/stats", params={"days": st_days}) or {}
+    k = S.get("kpis", {})
+    if k:
+        st.subheader("Operación")
+        last = pd.to_datetime(k["last_run_at"]).tz_convert("America/Argentina/Buenos_Aires") \
+            if k.get("last_run_at") else None
+        geo_pct = k["props_with_drive_time"] / k["props_located"] if k["props_located"] else 0
+        fmt = lambda n: f"{n:,}".replace(",", ".")
+        tiles = [
+            ("Avisos activos", fmt(k["listings_active"]), None, None),
+            ("Tierra activa", fmt(k["land_active"]), None, "Terrenos, lotes, chacras y campos en venta."),
+            ("Fuentes activas", f"{k['sources_enabled']}/{k['sources_total']}", None, None),
+            ("Corridas 24 h", k["runs_24h"],
+             f"{k['runs_failed_24h']} con error" if k["runs_failed_24h"] else None, None),
+            ("Tiempo de manejo", f"{geo_pct:.0%}", None,
+             "Propiedades con coordenadas que ya tienen tiempo de manejo (ORS) a los aeropuertos."),
+            ("Última corrida", last.strftime("%d/%m %H:%M") if last is not None else "—", None, None),
+            ("Nuevos 7 d", k["new_7d"], None, "Sin contar la carga inicial de cada fuente."),
+            ("Bajas de precio 7 d", k["price_drops_7d"], None, None),
+            ("Dados de baja 7 d", k["removed_7d"], None, None),
+            ("Duplicados a revisar", fmt(k["dedup_pending"]), None,
+             "Pares de avisos de distintas inmobiliarias que podrían ser la misma propiedad (tab Monitoreo)."),
+        ]
+        for i in range(0, len(tiles), 3):
+            cols = st.columns(3)
+            for col, (label, value, delta, hlp) in zip(cols, tiles[i:i + 3], strict=False):
+                col.metric(label, value, delta=delta, delta_color="inverse" if delta else "off", help=hlp)
+        if k["runs_broken_24h"]:
+            st.warning(f"⚠️ {k['runs_broken_24h']} fuente(s) con posible rotura en las últimas 24 h "
+                       "(ver tabla de fuentes).")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**Corridas por día**")
+            r = pd.DataFrame(S["runs_by_day"])
+            if not r.empty:
+                r = r.melt(id_vars=["day", "avg_minutes"], value_vars=["ok", "failed"], var_name="estado",
+                           value_name="corridas")
+                r["estado"] = r["estado"].map({"ok": "OK", "failed": "Con error"})
+                r["dia"] = pd.to_datetime(r["day"]).dt.strftime("%d/%m")
+                st.altair_chart(alt.Chart(r).mark_bar(cornerRadiusEnd=4, stroke="#1a1a19", strokeWidth=2).encode(
+                    x=alt.X("dia:O", title=None, sort=None, axis=alt.Axis(labelAngle=0, grid=False)),
+                    y=alt.Y("corridas:Q", title=None, stack=True),
+                    color=alt.Color("estado:N", scale=alt.Scale(domain=["OK", "Con error"], range=[GOOD, CRITICAL]),
+                                    legend=alt.Legend(orient="top", title=None)),
+                    order=alt.Order("estado:N", sort="descending"),
+                    tooltip=[alt.Tooltip("dia:O", title="Día"), "estado:N", "corridas:Q",
+                             alt.Tooltip("avg_minutes:Q", title="Duración media (min)")]),
+                    use_container_width=True)
+        with col2:
+            st.markdown("**Avisos nuevos por día** (sin la carga inicial)")
+            ch = pd.DataFrame(S["changes_by_day"])
+            nd = ch[ch["change_type"] == "new_listing"].copy() if not ch.empty else ch
+            if not nd.empty:
+                nd["dia"] = pd.to_datetime(nd["day"]).dt.strftime("%d/%m")
+            if nd.empty:
+                st.caption("Sin avisos nuevos en el período.")
+            else:
+                st.altair_chart(alt.Chart(nd).mark_bar(color=SERIES, cornerRadiusEnd=4).encode(
+                    x=alt.X("dia:O", title=None, sort=None, axis=alt.Axis(labelAngle=0, grid=False)),
+                    y=alt.Y("n:Q", title=None),
+                    tooltip=[alt.Tooltip("dia:O", title="Día"), alt.Tooltip("n:Q", title="Nuevos")]), use_container_width=True)
+
+        st.subheader("Mercado de tierra por zona")
+        z = pd.DataFrame(S["zones"])
+        if not z.empty:
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                st.markdown("**Avisos activos por zona**")
+                st.altair_chart(hbar(z, "zone", "listings", "Zona", "Avisos"), use_container_width=True)
+            with col2:
+                st.markdown("**Precio mediano por zona (USD)**")
+                zp = z[z["with_price"] >= 3].dropna(subset=["median_price_usd"])
+                st.altair_chart(hbar(zp, "zone", "median_price_usd", "Zona", "Mediana USD"),
+                                use_container_width=True)
+            st.caption("El gráfico de precio solo muestra zonas con 3 o más avisos con precio; la tabla, todas.")
+            st.dataframe(z, hide_index=True, use_container_width=True, column_config={
+                "zone": "Zona", "listings": "Avisos", "with_price": "Con precio",
+                "median_price_usd": st.column_config.NumberColumn("Mediana USD", format="localized"),
+                "median_usd_per_ha": st.column_config.NumberColumn("Mediana USD/ha", format="localized",
+                                                                   help="Solo avisos con precio y ≥ 500 m²")})
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**Cambios detectados (7 días)**")
+            c7 = pd.DataFrame(S["changes_7d"])
+            if not c7.empty:
+                c7["tipo"] = c7["change_type"].map(lambda t: CHANGE_LABELS.get(t, t))
+                st.altair_chart(hbar(c7, "tipo", "n", "Cambio", "Cantidad"), use_container_width=True)
+        with col2:
+            st.markdown("**Avisos activos por tipo** (sin alquileres)")
+            ty = pd.DataFrame(S["types"])
+            if not ty.empty:
+                st.altair_chart(hbar(ty, "property_type", "n", "Tipo", "Avisos"), use_container_width=True)
+
+        st.markdown("**Movimientos de precio**")
+        pm = pd.DataFrame(S["price_moves"])
+        if pm.empty:
+            st.caption("Sin cambios de precio en el período.")
+        else:
+            pm["cambio"] = pm["change_type"].map(lambda t: "▼ Bajó" if t == "price_decreased" else "▲ Subió")
+            pm["detected_at"] = pd.to_datetime(pm["detected_at"]).dt.tz_convert(
+                "America/Argentina/Buenos_Aires").dt.strftime("%d/%m %H:%M")
+            st.dataframe(pm[["detected_at", "cambio", "pct_change", "title", "price", "currency", "locality",
+                             "source_id", "url"]], hide_index=True, use_container_width=True, column_config={
+                "detected_at": "Detectado", "cambio": "Cambio",
+                "pct_change": st.column_config.NumberColumn("%", format="%.1f%%"), "title": "Aviso",
+                "price": st.column_config.NumberColumn("Precio actual", format="localized"), "currency": "Moneda",
+                "locality": "Localidad", "source_id": "Fuente", "url": st.column_config.LinkColumn("URL")})
+
+        st.subheader("Fuentes")
+        src = pd.DataFrame(S["sources"])
+        if not src.empty:
+            only_on = st.toggle("Solo fuentes activas", value=True, key="stats_only_enabled")
+            if only_on:
+                src = src[src["enabled"]]
+            src["estado"] = src.apply(
+                lambda r: "⚠️ posible rotura" if r["possibly_broken"] else
+                ("✅ OK" if r["last_status"] == "success" else
+                 "🟡 parcial" if r["last_status"] == "partial" else
+                 "❌ error" if r["last_status"] else "— sin corridas"), axis=1)
+            src["last_run_at"] = pd.to_datetime(src["last_run_at"], utc=True).dt.tz_convert(
+                "America/Argentina/Buenos_Aires").dt.strftime("%d/%m %H:%M")
+            pct = {"min_value": 0, "max_value": 1, "format": "percent"}
+            st.dataframe(
+                src[["name", "estado", "region", "active", "land", "pct_price", "pct_area", "pct_locality",
+                     "pct_coords", "new_7d", "price_changes_7d", "removed_7d", "last_run_at", "last_minutes",
+                     "last_errors", "base_url"]],
+                hide_index=True, use_container_width=True, height=min(900, 38 + 35 * len(src)),
+                column_config={
+                    "name": "Fuente", "estado": "Último crawl", "region": "Región", "active": "Activos",
+                    "land": "Tierra", "pct_price": st.column_config.ProgressColumn("Precio", **pct),
+                    "pct_area": st.column_config.ProgressColumn("Superficie", **pct),
+                    "pct_locality": st.column_config.ProgressColumn("Localidad", **pct),
+                    "pct_coords": st.column_config.ProgressColumn("Coordenadas", **pct),
+                    "new_7d": "Nuevos 7d", "price_changes_7d": "Cambios precio 7d", "removed_7d": "Bajas 7d",
+                    "last_run_at": "Última corrida", "last_minutes": st.column_config.NumberColumn("Min", format="%.1f"),
+                    "last_errors": "Errores", "base_url": st.column_config.LinkColumn("Sitio")})
+            st.caption("Cobertura = % de avisos activos de la fuente que tienen ese dato. Coordenadas = punto "
+                       "publicado (exacto o zona aproximada), no solo la localidad.")
+
+        st.markdown("**Propiedades dentro de 150 min por aeropuerto**")
+        dr = pd.DataFrame(S["drive"])
+        if not dr.empty:
+            st.dataframe(dr, hide_index=True, column_config={
+                "airport_code": "Aeropuerto", "within": "Dentro", "outside": "Fuera", "unknown": "Sin ruta"})
 
 with tab_map:
     apts = api("GET", "/airports") or []

@@ -382,6 +382,14 @@ def geo_analyze(s: Session = DB) -> dict[str, Any]:
     return {"job_id": job.id, "status": job.status}
 
 
+@app.get("/stats", dependencies=AUTH)
+def stats(days: int = Query(default=14, ge=1, le=90), s: Session = DB) -> dict[str, Any]:
+    """Métricas operativas (crawls, fuentes, cobertura) y de mercado (zonas, cambios de precio)."""
+    from patagonia_land.stats import compute
+
+    return compute(s, days)
+
+
 @app.get("/zones", dependencies=AUTH)
 def list_zones() -> list[dict[str, Any]]:
     return [{"zone": z, "localities": names} for z, names in zone_index().items()]
