@@ -21,14 +21,22 @@ cd /opt/land
 envget() { grep -E "^$1=" .env | tail -1 | cut -d= -f2-; }
 POSTGRES_USER=$(envget POSTGRES_USER); POSTGRES_DB=$(envget POSTGRES_DB)
 C="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
-$C stop api scraper-worker scheduler dashboard caddy 2>/dev/null || true
-$C up -d postgres
-until $C exec -T postgres pg_isready -U "$POSTGRES_USER" -d postgres >/dev/null 2>&1; do sleep 2; done
-$C exec -T postgres dropdb -U "$POSTGRES_USER" --if-exists --force "$POSTGRES_DB"
-$C exec -T postgres createdb -U "$POSTGRES_USER" "$POSTGRES_DB"
+$C stop api scraper-worker scheduler dashboard caddy </dev/null 2>/dev/null || true
+$C up -d postgres </dev/null
+# Ojo: "compose exec" lee stdin; sin </dev/null se come el resto de este script (llega por stdin vía ssh).
+# En el primer arranque Postgres se inicializa y se reinicia: esperar a que acepte consultas varias veces seguidas.
+ok=0
+for _ in $(seq 1 60); do
+  if $C exec -T postgres psql -U "$POSTGRES_USER" -d postgres -Atc "select 1" </dev/null >/dev/null 2>&1; then
+    ok=$((ok + 1)); [ "$ok" -ge 3 ] && break
+  else ok=0; fi
+  sleep 2
+done
+$C exec -T postgres dropdb -U "$POSTGRES_USER" --if-exists --force "$POSTGRES_DB" </dev/null
+$C exec -T postgres createdb -U "$POSTGRES_USER" "$POSTGRES_DB" </dev/null
 $C exec -T postgres pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --no-privileges < /tmp/land.dump
 rm -f /tmp/land.dump
 echo "Base restaurada. Levantando todo…"
-./deploy/up.sh
+./deploy/up.sh </dev/null
 REMOTE
 rm -f "$DUMP"
