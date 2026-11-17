@@ -11,6 +11,7 @@ import ipaddress
 import socket
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -155,6 +156,20 @@ class Fetcher:
         rp = self._robots.get(f"{urlsplit(url).scheme}://{urlsplit(url).netloc}")
         delay = rp.min_interval(self.settings.user_agent) if rp and self.settings.respect_robots else 0.0
         return max(delay, self.settings.request_delay_seconds) + self._penalty.get(urlsplit(url).netloc, 0.0)
+
+    def visit_seconds_left(self, url: str) -> float | None:
+        """Segundos que quedan de la franja Visit-time de robots.txt (requiere robots ya cargado)."""
+        if not self.settings.respect_robots:
+            return None
+        rp = self._robots.get(f"{urlsplit(url).scheme}://{urlsplit(url).netloc}")
+        return rp.visit_seconds_left(self.settings.user_agent) if rp else None
+
+    async def next_visit_start(self, url: str) -> datetime | None:
+        """Si robots.txt no permite visitar ahora (Visit-time), cuándo abre la franja; si no, None."""
+        if not self.settings.respect_robots:
+            return None
+        rp = await self.robots_for(url)
+        return rp.next_visit_start(self.settings.user_agent) if rp else None
 
     # --- fetch ----------------------------------------------------------------------------------
     async def _throttle(self, url: str) -> None:

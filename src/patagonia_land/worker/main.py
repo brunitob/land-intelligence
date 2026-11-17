@@ -34,6 +34,10 @@ async def run_job(job_id: int, kind: str, source_id: str | None) -> None:
             raise ValueError(f"tipo de job desconocido: {kind}")
         with session_scope() as s:
             jobs.finish(s, job_id, result=result)
+    except jobs.Deferred as d:
+        log.info("job.deferred", job_id=job_id, until=d.until.isoformat(), reason=d.reason)
+        with session_scope() as s:
+            jobs.defer(s, job_id, d.until, d.reason)
     except Exception as exc:
         log.error("job.failed", job_id=job_id, error=repr(exc), tb=traceback.format_exc())
         with session_scope() as s:

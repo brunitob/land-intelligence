@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from urllib.parse import unquote, urlsplit
 
 
@@ -156,6 +156,30 @@ class Robots:
         if not g or not g.visit_time:
             return True
         return _in_window(g.visit_time, now or datetime.now(UTC))
+
+    def next_visit_start(self, user_agent: str, now: datetime | None = None) -> datetime | None:
+        """Próximo inicio de la franja Visit-time (UTC); None si no hay franja o ya estamos dentro."""
+        g = self.group_for(user_agent)
+        now = now or datetime.now(UTC)
+        if not g or not g.visit_time or _in_window(g.visit_time, now):
+            return None
+        start = g.visit_time[0]
+        cand = now.replace(hour=start // 100, minute=start % 100, second=0, microsecond=0)
+        return cand if cand > now else cand + timedelta(days=1)
+
+    def visit_seconds_left(self, user_agent: str, now: datetime | None = None) -> float | None:
+        """Segundos hasta que cierra la franja Visit-time actual; None si no hay franja."""
+        g = self.group_for(user_agent)
+        now = now or datetime.now(UTC)
+        if not g or not g.visit_time:
+            return None
+        if not _in_window(g.visit_time, now):
+            return 0.0
+        end = g.visit_time[1]
+        cand = now.replace(hour=end // 100, minute=end % 100, second=0, microsecond=0)
+        if cand <= now:
+            cand += timedelta(days=1)
+        return (cand - now).total_seconds()
 
     def policy(self, user_agent: str) -> dict[str, object]:
         g = self.group_for(user_agent)

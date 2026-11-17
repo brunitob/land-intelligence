@@ -88,6 +88,7 @@ class Job(Base):
     created_at: Mapped[datetime] = _now()
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    not_before: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # job diferido
 
 
 class CrawlRun(Base):

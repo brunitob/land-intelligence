@@ -17,7 +17,14 @@ from urllib.parse import urlsplit
 import structlog
 
 from patagonia_land.crawling.classifier import Classification, PageType, classify_page, classify_url_only
-from patagonia_land.crawling.fetcher import BlockedError, Fetcher, FetchError, FetchResult, RobotsDisallowed
+from patagonia_land.crawling.fetcher import (
+    BlockedError,
+    Fetcher,
+    FetchError,
+    FetchResult,
+    OutsideVisitTime,
+    RobotsDisallowed,
+)
 from patagonia_land.crawling.page import Page
 from patagonia_land.crawling.pagination import build_page_url, current_page_number, detect_pagination
 from patagonia_land.crawling.sitemaps import discover_sitemap_urls
@@ -39,6 +46,9 @@ class SourceConfig:
     max_pages_per_run: int = 200
     max_depth: int = 5
     max_run_seconds: int = 4 * 3600
+    # Fichas ya conocidas → último chequeo (epoch s). Se visitan después de listados y fichas nuevas, las más
+    # viejas primero: si el presupuesto no alcanza, cada corrida avanza sobre las que hace más que no se miran.
+    known_details: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -63,6 +73,7 @@ class DiscoveryResult:
     sitemap_urls: int = 0
     errors: list[dict[str, Any]] = field(default_factory=list)
     blocked: bool = False
+    window_closed: bool = False  # se cerró la franja Visit-time de robots.txt: corrida incompleta, no rota
     pages_visited: int = 0
     page_budget: int = 0
     notes: list[str] = field(default_factory=list)
@@ -95,7 +106,7 @@ async def discover_properties(
     profile = profile or {}
     result = DiscoveryResult()
     counter = itertools.count()
-    heap: list[tuple[int, int, str]] = []
+    heap: list[tuple[float, int, str]] = []
     pagination = profile.get("pagination") or {}
 
     def enqueue(url: str | None, depth: int, parent: str | None, hint: Classification | None = None) -> None:
@@ -109,7 +120,10 @@ async def discover_properties(
             return
         result.records[url] = PageRecord(url, depth, parent, hint.page_type)
         result.candidate_urls += 1
-        heapq.heappush(heap, (PRIORITY[hint.page_type] * 100 + depth, next(counter), url))
+        prio: float = PRIORITY[hint.page_type] * 100 + depth
+        if hint.page_type == PageType.PROPERTY_DETAIL and url in source.known_details:
+            prio = 1000 + source.known_details[url] / 1e10  # conocidas al final, la menos reciente primero
+        heapq.heappush(heap, (prio, next(counter), url))
 
     starts = source.start_urls or profile.get("entry_urls") or [source.base_url]
     for u in starts + [source.base_url]:
@@ -133,13 +147,19 @@ async def discover_properties(
                 enqueue(u, 1, "sitemap", hint)
 
     # Presupuesto: páginas por corrida, acotado por el ritmo que exige robots.txt (Crawl-delay/Request-rate).
+    if fetcher.settings.respect_robots:
+        await fetcher.robots_for(source.base_url)  # el ritmo y la franja salen de robots.txt
     interval = fetcher.crawl_delay(source.base_url)
     budget = source.max_pages_per_run
+    run_seconds = source.max_run_seconds
+    window_left = fetcher.visit_seconds_left(source.base_url)
+    if window_left is not None:
+        run_seconds = min(run_seconds, int(window_left))
     if interval > 0:
-        budget = min(budget, max(1, int(source.max_run_seconds / interval)))
+        budget = min(budget, max(1, int(run_seconds / interval)))
         if budget < source.max_pages_per_run:
             result.notes.append(f"robots.txt exige {interval:.0f}s entre pedidos: presupuesto reducido a {budget} "
-                                f"páginas por corrida (máx. {source.max_run_seconds // 60} min)")
+                                f"páginas por corrida (máx. {run_seconds // 60} min)")
     result.page_budget = budget
 
     while heap and result.pages_visited < budget:
@@ -150,6 +170,11 @@ async def discover_properties(
         except RobotsDisallowed as exc:
             rec.status, rec.error = "skipped", str(exc)
             continue
+        except OutsideVisitTime as exc:
+            rec.status, rec.error = "skipped", str(exc)
+            result.window_closed = True
+            result.notes.append("se cerró la franja horaria de robots.txt: el resto sigue en la próxima corrida")
+            break
         except BlockedError as exc:
             rec.status, rec.error = "error", str(exc)
             result.errors.append({"url": url, "stage": "fetch", "error": str(exc), "blocked": True})

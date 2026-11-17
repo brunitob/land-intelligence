@@ -35,6 +35,7 @@ from patagonia_land.extraction.schemas import ExtractedListing
 from patagonia_land.extraction.validation import demote_shared_coordinates
 from patagonia_land.intelligence.deduplication import ListingFeatures, decide, score_pair
 from patagonia_land.intelligence.normalization import to_usd
+from patagonia_land.jobs import Deferred
 from patagonia_land.monitoring.changes import ChangeType, content_hash, diff_snapshots
 from patagonia_land.monitoring.notifications import queue_alerts, send_pending
 
@@ -76,9 +77,16 @@ def save_auto_profile(session: Session, source_id: str, profile: dict[str, Any])
     return sp
 
 
-def _source_config(src: Source) -> SourceConfig:
+def _source_config(s: Session, src: Source) -> SourceConfig:
+    known: dict[str, float] = {}
+    for url, canon, checked in s.execute(select(Listing.url, Listing.canonical_url, Listing.last_checked_at).where(
+            Listing.source_id == src.id, Listing.status.in_(("active", "missing")))):
+        ts = checked.timestamp() if checked else 0.0
+        for u in {url, canon}:
+            if u:
+                known[u] = ts
     return SourceConfig(id=src.id, base_url=src.base_url, start_urls=list(src.start_urls or []),
-                        max_pages_per_run=src.max_pages_per_run, max_depth=src.max_depth)
+                        max_pages_per_run=src.max_pages_per_run, max_depth=src.max_depth, known_details=known)
 
 
 def _progress(job_id: int | None):
@@ -123,8 +131,16 @@ async def run_crawl(source_id: str, job_id: int | None = None, fetcher_factory: 
             raise ValueError(f"fuente inexistente {source_id}")
         profile, version = active_profile(s, src)
         overrides = dict(src.manual_overrides or {})
-        cfg = _source_config(src)
+        cfg = _source_config(s, src)
         region = src.region
+
+    # robots.txt con Visit-time: fuera de la franja no se visita; el job espera a que abra (sin corrida fallida).
+    async with fetcher_factory() as f:
+        opens_at = await f.next_visit_start(cfg.base_url)
+    if opens_at is not None:
+        raise Deferred(opens_at, "robots.txt solo permite visitas en otra franja horaria")
+
+    with session_scope() as s:
         run = CrawlRun(source_id=source_id, job_id=job_id, profile_version=version, status="running")
         s.add(run)
         s.flush()
@@ -291,7 +307,8 @@ def _persist_listings(s: Session, source_id: str, run_id: int, extracted: list[t
     typical = sorted(prev_counts)[len(prev_counts) // 2] if prev_counts else None
     found = len(disc.details)
     possibly_broken = bool(typical and found < typical * settings.broken_run_ratio) or disc.blocked
-    budget_exhausted = disc.pages_visited >= (disc.page_budget or _source_budget(s, source_id))
+    budget_exhausted = disc.window_closed or \
+        disc.pages_visited >= (disc.page_budget or _source_budget(s, source_id))
     missing_marked = removed = 0
     if not possibly_broken and not budget_exhausted and found > 0:
         active = s.scalars(select(Listing).where(Listing.source_id == source_id,

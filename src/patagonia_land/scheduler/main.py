@@ -13,7 +13,7 @@ from patagonia_land.db.models import CrawlRun, Job, Source
 from patagonia_land.db.session import session_scope
 
 log = structlog.get_logger()
-STALE_AFTER = timedelta(hours=3)
+STALE_AFTER = timedelta(hours=5)  # > máx. de una corrida (4 h, fuentes lentas por robots.txt)
 
 
 def enqueue_due_crawls() -> None:
