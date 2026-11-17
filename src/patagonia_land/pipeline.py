@@ -192,6 +192,12 @@ async def run_crawl(source_id: str, job_id: int | None = None, fetcher_factory: 
         run.duration_seconds = round(time.monotonic() - started, 1)
         run.finished_at = datetime.now(UTC)
         run.possibly_broken = stats["possibly_broken"]
+        if disc.pages_visited == 0 and not disc.window_closed:
+            skipped = [r.error for r in disc.records.values() if r.status == "skipped" and r.error]
+            errors.append({"stage": "fetch", "error": "no se pudo visitar ninguna página" +
+                           (f" ({skipped[0]})" if skipped else " (¿el sitio bloquea crawlers? ¿URLs de inicio?)")})
+            run.errors = ([{"stage": "note", "error": n} for n in disc.notes] + errors)[:200]
+            run.errors_count = len(errors)
         run.status = "failed" if disc.blocked or (n == 0 and errors) else "partial" if (
             stats["possibly_broken"] or errors) else "success"
         if run.status in ("success", "partial") and n:
