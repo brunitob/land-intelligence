@@ -21,7 +21,7 @@ cd /opt/land
 envget() { grep -E "^$1=" .env | tail -1 | cut -d= -f2-; }
 POSTGRES_USER=$(envget POSTGRES_USER); POSTGRES_DB=$(envget POSTGRES_DB)
 C="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
-$C stop api scraper-worker scheduler dashboard caddy </dev/null 2>/dev/null || true
+$C stop api scraper-worker scheduler web caddy </dev/null 2>/dev/null || true
 $C up -d postgres </dev/null
 # Ojo: "compose exec" lee stdin; sin </dev/null se come el resto de este script (llega por stdin vía ssh).
 # En el primer arranque Postgres se inicializa y se reinicia: esperar a que acepte consultas varias veces seguidas.

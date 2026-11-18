@@ -76,6 +76,6 @@ cat <<NEXT
 
 Listo. Próximos pasos (en el servidor):
   1) nano $APP_DIR/.env              # claves de Anthropic/ORS y contacto en USER_AGENT
-  2) $APP_DIR/deploy/set-password.sh # usuario y contraseña del dashboard
+  2) $APP_DIR/deploy/set-password.sh # usuario y contraseña del sitio
   3) $APP_DIR/deploy/up.sh           # construir y levantar todo
 NEXT

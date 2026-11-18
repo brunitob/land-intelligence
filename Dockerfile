@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 
 COPY pyproject.toml README.md ./
 COPY src ./src
-RUN pip install ".[dashboard,dev]"
+RUN pip install ".[dev]"
 
 # Playwright es opcional (ENABLE_PLAYWRIGHT=true). Se instala con: docker compose build --build-arg WITH_PLAYWRIGHT=1
 ARG WITH_PLAYWRIGHT=0

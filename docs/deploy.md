@@ -1,8 +1,8 @@
 # Deploy en Hetzner (VPS con Docker)
 
-Todo corre igual que en local (`docker compose`), más **Caddy** adelante: HTTPS automático y usuario y
-contraseña para el dashboard. La base, la API y el dashboard no quedan expuestos a internet; solo Caddy
-escucha en los puertos 80/443.
+Todo corre igual que en local (`docker compose`). El servicio `web` (Caddy) es el único público: HTTPS
+automático, usuario y contraseña, sirve la app web (React, `frontend/`) y pasa `/api/*` a la API con el token
+interno. La base y la API no quedan expuestas a internet; solo `web` escucha en los puertos 80/443.
 
 ## 1. Crear el servidor (en la consola de Hetzner)
 
@@ -12,7 +12,7 @@ escucha en los puertos 80/443.
 4. **Type:** lo más barato que funciona es **2 GB de RAM** (p. ej. **CPX12**, 1 vCPU): corre con 1 worker y el
    crawl diario tarda ~2–3 h (de madrugada). Con 4 GB (CPX22) usa 2 workers; con 8 GB, 4. El setup elige
    `WORKERS` según la RAM. Si "Cost-Optimized x86" está disponible en alguna ubicación, suele ser más barato.
-   Nunca 1 GB (CPX02): no entran Postgres, el worker y el dashboard. Evitar Arm64 (PostGIS).
+   Nunca 1 GB (CPX02): no entran Postgres, la API y el worker. Evitar Arm64 (PostGIS).
    **Networking:** dejar **Public IPv4** activada (muchos sitios de inmobiliarias y GitHub no tienen IPv6).
 5. **SSH key:** agregá tu clave pública (`cat ~/.ssh/id_ed25519.pub` en tu Mac; si no tenés,
    `ssh-keygen -t ed25519`). Sin contraseña de root.
@@ -39,7 +39,7 @@ nano /opt/land/.env      # ANTHROPIC_API_KEY, ORS_API_KEY, USER_AGENT con un con
 `SITE_ADDRESS` queda como `IP-con-guiones.sslip.io` (HTTPS válido sin comprar dominio). Si tenés dominio:
 creá un registro **A** `land.tudominio.com → IP` y poné ese nombre en `SITE_ADDRESS`.
 
-Usuario y contraseña del dashboard:
+Usuario y contraseña del sitio:
 
 ```bash
 /opt/land/deploy/set-password.sh
@@ -60,7 +60,7 @@ Al terminar levanta todo en el servidor. Si preferís arrancar de cero, salteá 
 
 ## 4. Listo
 
-Dashboard: `https://<SITE_ADDRESS>` (pide el usuario y contraseña del paso 2).
+App: `https://<SITE_ADDRESS>` (pide el usuario y contraseña del paso 2).
 
 ## Día a día
 
@@ -71,7 +71,7 @@ Dashboard: `https://<SITE_ADDRESS>` (pide el usuario y contraseña del paso 2).
 | Ver logs | `... logs -f --tail 100 scraper-worker` (mismo prefijo) |
 | Backup manual | `ssh root@IP /opt/land/deploy/backup.sh` (los diarios quedan en `/opt/land/deploy/backups`, 14 días) |
 | Bajar un backup | `scp root@IP:/opt/land/deploy/backups/land-AAAAMMDD-HHMM.dump .` |
-| Cambiar contraseña | `ssh -t root@IP /opt/land/deploy/set-password.sh` y reiniciar `caddy` |
+| Cambiar contraseña | `ssh -t root@IP /opt/land/deploy/set-password.sh` y reiniciar `web` |
 
 ## Notas
 

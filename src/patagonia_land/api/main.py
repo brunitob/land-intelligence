@@ -190,6 +190,18 @@ def set_manual_profile(source_id: str, profile: dict[str, Any], s: Session = DB)
     return _row(sp)
 
 
+# ----------------------------------------------------------------------------- estado general
+@app.get("/status", dependencies=AUTH)
+def status(s: Session = DB) -> dict[str, Any]:
+    """Resumen liviano para el encabezado del frontend: última corrida y cola de jobs."""
+    last = s.scalar(select(func.max(CrawlRun.finished_at)))
+    counts = dict(s.execute(select(Job.status, func.count()).where(Job.status.in_(("queued", "running")))
+                            .group_by(Job.status)).all())
+    running = s.execute(select(Job.kind, Job.source_id).where(Job.status == "running")).all()
+    return {"last_run_at": last, "queued": counts.get("queued", 0), "running": counts.get("running", 0),
+            "running_jobs": [{"kind": k, "source_id": sid} for k, sid in running]}
+
+
 # ----------------------------------------------------------------------------- jobs
 @app.get("/jobs/{job_id}", dependencies=AUTH)
 def get_job(job_id: int, s: Session = DB) -> dict[str, Any]:
@@ -342,14 +354,17 @@ def list_changes(change_types: list[str] | None = Query(default=None), limit: in
 
 
 @app.get("/dedup/pending", dependencies=AUTH)
-def dedup_pending(s: Session = DB) -> list[dict[str, Any]]:
-    out = []
-    for c in s.scalars(select(DedupCandidate).where(DedupCandidate.status == "pending").order_by(
-            DedupCandidate.score.desc())):
+def dedup_pending(limit: int = Query(default=50, le=500), offset: int = 0, s: Session = DB) -> dict[str, Any]:
+    pending = select(DedupCandidate).where(DedupCandidate.status == "pending")
+    total = s.scalar(select(func.count()).select_from(pending.subquery()))
+    items = []
+    for c in s.scalars(pending.order_by(DedupCandidate.score.desc(), DedupCandidate.id).offset(offset).limit(limit)):
         a, b = s.get(Listing, c.listing_a_id), s.get(Listing, c.listing_b_id)
-        out.append({**_row(c), "a": {"id": a.id, "title": a.title, "url": a.url, "source_id": a.source_id},
-                    "b": {"id": b.id, "title": b.title, "url": b.url, "source_id": b.source_id}})
-    return out
+        side = lambda x: {"id": x.id, "title": x.title, "url": x.url, "source_id": x.source_id,
+                          "price": float(x.price) if x.price is not None else None, "currency": x.currency,
+                          "area_m2": x.area_m2, "locality": x.locality}
+        items.append({**_row(c), "a": side(a), "b": side(b)})
+    return {"total": total, "items": items}
 
 
 class DedupDecision(BaseModel):

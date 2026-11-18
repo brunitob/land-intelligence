@@ -24,7 +24,6 @@ dependencies = [
 
 [project.optional-dependencies]
 browser = ["playwright>=1.44"]
-dashboard = ["streamlit>=1.36", "pandas>=2.2", "pydeck>=0.9"]
 dev = ["pytest>=8.2", "pytest-asyncio>=0.23", "respx>=0.21", "ruff>=0.5"]
 
 [build-system]

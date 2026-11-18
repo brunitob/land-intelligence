@@ -12,7 +12,7 @@ docker compose up -d --build
 ```
 
 - API: http://localhost:8000/docs
-- Dashboard: http://localhost:8501
+- App web: http://localhost:8501
 
 Alta de una inmobiliaria (sin tocar código):
 
@@ -34,7 +34,7 @@ y detecta cambios. El progreso se consulta en `GET /jobs/{id}`.
 | 2. Inspector, discovery, paginación, clasificador, extracción | ✅ validado con 3 sitios sintéticos de estructura distinta; falta validar con 3 sitios reales |
 | 3. Snapshots, cambios, deduplicación, Telegram | ✅ (Telegram requiere `TELEGRAM_*`) |
 | 4. Isócronas, tiempos, hidrografía | 🟡 isócronas/tiempos vía ORS listos (requiere `ORS_API_KEY`); hidrografía OSM pendiente |
-| 5. Dashboard | ✅ Streamlit (Propiedades, Destacados, Estadísticas); deploy en VPS: [docs/deploy.md](docs/deploy.md) |
+| 5. Dashboard | ✅ App web React en `frontend/` (Propiedades, Destacados, Estadísticas, Mapa, Fuentes, Monitoreo); deploy en VPS: [docs/deploy.md](docs/deploy.md) |
 
 ## Decisiones importantes
 
@@ -53,9 +53,15 @@ y detecta cambios. El progreso se consulta en `GET /jobs/{id}`.
 ## Desarrollo
 
 ```bash
-uv venv --python 3.12 && uv pip install -e ".[dashboard,dev]"
+uv venv --python 3.12 && uv pip install -e ".[dev]"
 docker compose up -d postgres
 .venv/bin/pytest            # crea y migra patagonia_land_test automáticamente
+```
+
+Frontend con recarga en caliente (necesita la API en :8000, p. ej. `uvicorn patagonia_land.api.main:app --app-dir src`):
+
+```bash
+cd frontend && npm install && npm run dev    # http://localhost:5173 (pasa /api/* a :8000)
 ```
 
 LLM fallback: `LLM_ENABLED=true` + `ANTHROPIC_API_KEY`. Modelo por defecto `claude-opus-5-5`; para abaratar el
