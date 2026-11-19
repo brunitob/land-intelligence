@@ -78,6 +78,7 @@ export interface Listing {
   last_seen_at: string;
   price_per_ha_usd: number | null;
   warnings?: string[];
+  is_new?: boolean;
   origin?: "filtro" | "fijado";
 }
 
@@ -105,6 +106,7 @@ export interface Change {
 
 export interface PropertiesResponse {
   total: number;
+  new_count: number;
   items: Listing[];
   airport_filter_mode: "isochrone" | "region" | null;
 }

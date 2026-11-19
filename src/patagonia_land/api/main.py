@@ -10,7 +10,8 @@ from urllib.parse import urlsplit
 import structlog
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field, HttpUrl
-from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy import and_, delete, exists, func, or_, select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from patagonia_land import auth as authn
@@ -27,6 +28,7 @@ from patagonia_land.db.models import (
     Job,
     Listing,
     ListingChange,
+    ListingReview,
     ListingSnapshot,
     PropertyGeoAnalysis,
     SiteProfile,
@@ -323,6 +325,7 @@ def list_properties(
     source_id: str | None = None,
     zones: list[str] | None = Query(default=None),
     q: str | None = None,
+    only_new: bool = False,
     limit: int = Query(default=200, le=2000),
     offset: int = 0,
 ) -> dict[str, Any]:
@@ -375,16 +378,24 @@ def list_properties(
             src_ids = select(Source.id).where(Source.region.in_(wanted))
             stmt = stmt.where(or_(Listing.locality.in_(names),
                                   and_(Listing.locality.is_(None), Listing.source_id.in_(src_ids))))
+    unreviewed = ~exists().where(ListingReview.listing_id == Listing.id)
+    new_count = s.scalar(select(func.count()).select_from(stmt.where(unreviewed).subquery()))
+    if only_new:
+        stmt = stmt.where(unreviewed)
     total = s.scalar(select(func.count()).select_from(stmt.subquery()))
-    rows = s.scalars(stmt.order_by(Listing.last_seen_at.desc()).offset(offset).limit(limit)).all()
+    order = Listing.first_seen_at.desc() if only_new else Listing.last_seen_at.desc()
+    rows = s.scalars(stmt.order_by(order).offset(offset).limit(limit)).all()
+    reviewed = set(s.scalars(select(ListingReview.listing_id).where(
+        ListingReview.listing_id.in_([x.id for x in rows])))) if rows else set()
     items = []
     for lst in rows:
         r = _row(lst, exclude=("data", "provenance", "description"))
+        r["is_new"] = lst.id not in reviewed
         r["price_per_ha_usd"] = round(float(lst.price_usd) / (lst.area_m2 / 10_000), 0) \
             if lst.price_usd and lst.area_m2 else None
         r["warnings"] = (lst.data or {}).get("warnings", [])
         items.append(r)
-    return {"total": total, "items": items, "airport_filter_mode": "isochrone" if airports and
+    return {"total": total, "new_count": new_count, "items": items, "airport_filter_mode": "isochrone" if airports and
             _has_drive_analysis(s) else "region" if airports else None}
 
 
@@ -412,12 +423,33 @@ def get_listing(listing_id: int, s: Session = DB) -> dict[str, Any]:
     if not lst:
         raise HTTPException(404, "anuncio no encontrado")
     out = _row(lst)
+    out["is_new"] = s.get(ListingReview, listing_id) is None
     out["changes"] = [_row(c) for c in s.scalars(select(ListingChange).where(ListingChange.listing_id == listing_id)
                                                  .order_by(ListingChange.detected_at.desc()))]
     out["snapshots"] = [{"id": x.id, "captured_at": x.captured_at, "content_hash": x.content_hash, "data": x.data}
                         for x in s.scalars(select(ListingSnapshot).where(ListingSnapshot.listing_id == listing_id)
                                            .order_by(ListingSnapshot.captured_at.desc()))]
     return out
+
+
+class ReviewIn(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=5000)
+    reviewed: bool = True
+
+
+@app.post("/listings/review", dependencies=AUTH)
+def review_listings(body: ReviewIn, request: Request, s: Session = DB) -> dict[str, Any]:
+    """Marca avisos como revisados (salen de "Solo nuevos") o los vuelve a dejar como nuevos."""
+    ids = sorted(set(body.ids))
+    if body.reviewed:
+        valid = s.scalars(select(Listing.id).where(Listing.id.in_(ids))).all()
+        if valid:
+            s.execute(pg_insert(ListingReview).values(
+                [{"listing_id": i, "reviewed_by": getattr(request.state, "user", None)} for i in valid])
+                .on_conflict_do_nothing(index_elements=["listing_id"]))
+        return {"reviewed": len(valid)}
+    s.execute(delete(ListingReview).where(ListingReview.listing_id.in_(ids)))
+    return {"unreviewed": len(ids)}
 
 
 @app.get("/changes", dependencies=AUTH)

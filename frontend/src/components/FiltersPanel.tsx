@@ -43,6 +43,10 @@ export function FiltersPanel({ maxMinutes }: { maxMinutes: number }) {
             Restablecer
           </button>
         </div>
+        <label className="check small">
+          <input type="checkbox" checked={filters.only_new} onChange={(e) => set({ only_new: e.target.checked })} />
+          Solo nuevos sin revisar
+        </label>
         <label className="field">
           Buscar en título o descripción
           <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="lago, bosque, Villa…" />

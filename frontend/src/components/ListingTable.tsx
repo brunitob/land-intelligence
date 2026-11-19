@@ -81,6 +81,7 @@ export function ListingTable({
                   <span className="clip" title={l.title ?? ""}>
                     {l.title ?? <span className="muted">Sin título</span>}
                   </span>
+                  {l.is_new && <span className="badge accent small">nuevo</span>}
                   {l.status === "missing" && <span className="badge warn small">no visto en la última corrida</span>}
                 </td>
                 <td>{l.property_type ?? "—"}</td>

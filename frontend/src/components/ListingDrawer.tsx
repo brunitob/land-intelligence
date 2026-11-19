@@ -1,12 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, ListingDetail } from "../api";
 import { area, CHANGE_LABELS, dateTime, GEO, money, num, WATER } from "../format";
+import { useMarkReviewed } from "../reviews";
 import { AddToHighlight } from "./AddToHighlight";
 import { Drawer, ErrorBox, Loading } from "./ui";
 
 export function ListingDrawer({ id, onClose }: { id: number; onClose: () => void }) {
   const q = useQuery({ queryKey: ["listing", id], queryFn: () => api.get<ListingDetail>(`/listings/${id}`) });
   const d = q.data;
+  const mark = useMarkReviewed();
   // Solo los cambios de precio (un snapshot nuevo también se guarda cuando cambia otro dato).
   const prices = (d?.snapshots ?? [])
     .map((s) => ({ at: s.captured_at, price: s.data?.price as number | null, currency: s.data?.currency as string | null }))
@@ -29,6 +31,16 @@ export function ListingDrawer({ id, onClose }: { id: number; onClose: () => void
             </a>
           )}
         </div>
+        {d && (
+          <button
+            className={`btn sm${d.is_new ? " primary" : ""}`}
+            disabled={mark.isPending}
+            onClick={() => mark.mutate({ ids: [id], reviewed: !!d.is_new })}
+            title={d.is_new ? "Sacarlo de “Nuevos sin revisar”" : "Volver a ponerlo en “Nuevos sin revisar”"}
+          >
+            {d.is_new ? "✓ Marcar revisado" : "↺ Volver a nuevo"}
+          </button>
+        )}
         <button className="btn ghost" onClick={onClose} aria-label="Cerrar">
           ✕
         </button>

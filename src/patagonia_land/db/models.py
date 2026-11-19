@@ -340,6 +340,16 @@ class HighlightListing(Base):
     created_at: Mapped[datetime] = _now()
 
 
+class ListingReview(Base):
+    """Aviso ya revisado en la app. Sin fila = nuevo para revisar (filtro "Solo nuevos")."""
+
+    __tablename__ = "listing_reviews"
+
+    listing_id: Mapped[int] = mapped_column(ForeignKey("listings.id", ondelete="CASCADE"), primary_key=True)
+    reviewed_at: Mapped[datetime] = _now()
+    reviewed_by: Mapped[str | None] = mapped_column(String(64))
+
+
 class DriveTimeCache(Base):
     """Minutos de manejo aeropuerto → punto (coordenadas redondeadas a ~10 m). Evita repetir pedidos a ORS:
     los caminos no cambian entre corridas y muchos avisos comparten el centro de su localidad."""

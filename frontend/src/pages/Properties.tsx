@@ -6,13 +6,17 @@ import { ListingDrawer } from "../components/ListingDrawer";
 import { ListingTable } from "../components/ListingTable";
 import { ErrorBox, Loading, Spinner, useToast } from "../components/ui";
 import { useFilters, useProperties } from "../filters";
+import { useMarkReviewed } from "../reviews";
 import { num } from "../format";
 
 const NEW = "__new__";
 
 export function PropertiesPage({ maxMinutes }: { maxMinutes: number }) {
-  const { filters } = useFilters();
+  const { filters, setFilters } = useFilters();
   const props = useProperties(filters);
+  const mark = useMarkReviewed();
+  const newCount = props.data?.new_count ?? 0;
+  const shownNew = (props.data?.items ?? []).filter((l) => l.is_new).map((l) => l.id);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [open, setOpen] = useState<number | null>(null);
 
@@ -25,8 +29,28 @@ export function PropertiesPage({ maxMinutes }: { maxMinutes: number }) {
             {props.data ? `${num(props.data.total)} avisos` : "Avisos"}
             {props.isFetching && <Spinner />}
           </h2>
-          <span className="muted small">Click en un aviso para ver el detalle · tildá para agregar a un destacado</span>
+          <div className="row">
+            <button
+              className={`chip${filters.only_new ? " on" : ""}`}
+              onClick={() => setFilters({ ...filters, only_new: !filters.only_new })}
+              title="Avisos que todavía no marcaste como revisados"
+            >
+              🆕 Nuevos sin revisar: {num(newCount)}
+            </button>
+            {filters.only_new && shownNew.length > 0 && (
+              <button
+                className="btn sm"
+                disabled={mark.isPending}
+                onClick={() => {
+                  if (confirm(`¿Marcar los ${shownNew.length} avisos de esta lista como revisados?`)) mark.mutate({ ids: shownNew, reviewed: true });
+                }}
+              >
+                ✓ Marcar todos como revisados
+              </button>
+            )}
+          </div>
         </div>
+        <div className="muted small">Click en un aviso para ver el detalle · tildá para agregar a un destacado o marcar como revisado</div>
         {props.data?.airport_filter_mode === "region" && (
           <div className="alert info small">Todavía no hay tiempos de manejo calculados: el filtro por aeropuerto usa la región.</div>
         )}
@@ -50,6 +74,7 @@ export function PropertiesPage({ maxMinutes }: { maxMinutes: number }) {
 
 function BulkBar({ ids, onDone }: { ids: number[]; onDone: () => void }) {
   const qc = useQueryClient();
+  const mark = useMarkReviewed();
   const toast = useToast();
   const hls = useQuery({ queryKey: ["highlights"], queryFn: () => api.get<Highlight[]>("/highlights") });
   const [dest, setDest] = useState<string>("");
@@ -92,6 +117,9 @@ function BulkBar({ ids, onDone }: { ids: number[]; onDone: () => void }) {
       )}
       <button className="btn primary" disabled={add.isPending || (target === NEW && !name.trim())} onClick={() => add.mutate()}>
         {add.isPending ? <Spinner /> : "⭐"} Agregar
+      </button>
+      <button className="btn" disabled={mark.isPending} onClick={() => mark.mutate({ ids, reviewed: true }, { onSuccess: onDone })}>
+        ✓ Marcar revisados
       </button>
       <button className="btn ghost" onClick={onDone}>
         Cancelar

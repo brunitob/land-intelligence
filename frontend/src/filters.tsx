@@ -15,6 +15,7 @@ export interface Filters {
   waterfront_only: boolean;
   include_unknown_location: boolean;
   include_no_price: boolean;
+  only_new: boolean;
   q: string;
 }
 
@@ -28,6 +29,7 @@ export const DEFAULT_FILTERS: Filters = {
   waterfront_only: false,
   include_unknown_location: true,
   include_no_price: true,
+  only_new: false,
   q: "",
 };
 
@@ -99,6 +101,7 @@ export function useProperties(filters: Filters) {
         waterfront_only: filters.waterfront_only,
         include_unknown_location: filters.include_unknown_location,
         include_no_price: filters.include_no_price,
+        only_new: filters.only_new,
         q: filters.q.trim() || null,
         limit: 2000,
       }),
