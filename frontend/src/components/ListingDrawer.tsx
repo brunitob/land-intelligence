@@ -1,31 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { api, Highlight, ListingDetail } from "../api";
+import { useQuery } from "@tanstack/react-query";
+import { api, ListingDetail } from "../api";
 import { area, CHANGE_LABELS, dateTime, GEO, money, num, WATER } from "../format";
-import { Drawer, ErrorBox, Loading, Spinner, useToast } from "./ui";
+import { AddToHighlight } from "./AddToHighlight";
+import { Drawer, ErrorBox, Loading } from "./ui";
 
 export function ListingDrawer({ id, onClose }: { id: number; onClose: () => void }) {
-  const qc = useQueryClient();
-  const toast = useToast();
   const q = useQuery({ queryKey: ["listing", id], queryFn: () => api.get<ListingDetail>(`/listings/${id}`) });
-  const inHl = useQuery({
-    queryKey: ["listing-hl", id],
-    queryFn: () => api.get<{ id: number; name: string; origin: string }[]>(`/listings/${id}/highlights`),
-  });
-  const hls = useQuery({ queryKey: ["highlights"], queryFn: () => api.get<Highlight[]>("/highlights") });
-  const [target, setTarget] = useState<number | "">("");
-
-  const pin = useMutation({
-    mutationFn: (hid: number) => api.put(`/highlights/${hid}/listings/${id}`, { mode: "pinned" }),
-    onSuccess: (_, hid) => {
-      toast(`Agregado a ${hls.data?.find((h) => h.id === hid)?.name}`);
-      qc.invalidateQueries({ queryKey: ["listing-hl", id] });
-      qc.invalidateQueries({ queryKey: ["highlights"] });
-      qc.invalidateQueries({ queryKey: ["hl-listings"] });
-    },
-    onError: (e) => toast(String(e), true),
-  });
-
   const d = q.data;
   // Solo los cambios de precio (un snapshot nuevo también se guarda cuando cambia otro dato).
   const prices = (d?.snapshots ?? [])
@@ -34,7 +14,6 @@ export function ListingDrawer({ id, onClose }: { id: number; onClose: () => void
     .filter((p, i, all) => i === 0 || p.price !== all[i - 1].price || p.currency !== all[i - 1].currency)
     .reverse();
   const water = d?.data?.water ?? {};
-  const pinnable = (hls.data ?? []).filter((h) => !(inHl.data ?? []).some((x) => x.id === h.id));
 
   return (
     <Drawer onClose={onClose}>
@@ -72,33 +51,8 @@ export function ListingDrawer({ id, onClose }: { id: number; onClose: () => void
             </div>
 
             <div className="card card-pad stack" style={{ gap: 10 }}>
-              <div className="spread">
-                <strong>⭐ Destacados</strong>
-              </div>
-              <div className="row">
-                {inHl.isLoading && <Spinner />}
-                {inHl.data?.length === 0 && <span className="muted small">No está en ningún destacado.</span>}
-                {(inHl.data ?? []).map((h) => (
-                  <span key={h.id} className="badge accent">
-                    {h.name} · {h.origin}
-                  </span>
-                ))}
-              </div>
-              {inHl.data && pinnable.length > 0 && (
-                <div className="row">
-                  <select className="select grow" value={target} onChange={(e) => setTarget(e.target.value ? Number(e.target.value) : "")}>
-                    <option value="">Agregar a un destacado…</option>
-                    {pinnable.map((h) => (
-                      <option key={h.id} value={h.id}>
-                        {h.name}
-                      </option>
-                    ))}
-                  </select>
-                  <button className="btn primary" disabled={!target || pin.isPending} onClick={() => target && pin.mutate(target)}>
-                    Agregar
-                  </button>
-                </div>
-              )}
+              <strong>⭐ Destacados</strong>
+              <AddToHighlight listingId={id} />
             </div>
 
             {d.photos?.length > 0 && (

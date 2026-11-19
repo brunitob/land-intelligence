@@ -3,6 +3,7 @@ import "leaflet/dist/leaflet.css";
 import { useState } from "react";
 import { Circle, CircleMarker, MapContainer, Popup, TileLayer, Tooltip } from "react-leaflet";
 import { Airport, api } from "../api";
+import { AddToHighlight } from "../components/AddToHighlight";
 import { ListingDrawer } from "../components/ListingDrawer";
 import { Spinner } from "../components/ui";
 import { useFilters, useProperties } from "../filters";
@@ -80,7 +81,7 @@ export function MapPage() {
 function ListingPopup({ l, onOpen }: { l: import("../api").Listing; onOpen: (id: number) => void }) {
   return (
     <Popup>
-      <div style={{ minWidth: 200 }}>
+      <div className="map-popup" style={{ minWidth: 240 }}>
         <strong>{l.title}</strong>
         <div>
           {money(l.price, l.currency)} · {area(l.area_m2)}
@@ -88,7 +89,10 @@ function ListingPopup({ l, onOpen }: { l: import("../api").Listing; onOpen: (id:
         <div style={{ color: "#52514e" }}>
           {l.locality ?? "—"} · {l.source_id}
         </div>
-        <div style={{ marginTop: 6, display: "flex", gap: 10 }}>
+        <div style={{ marginTop: 8 }}>
+          <AddToHighlight listingId={l.id} compact />
+        </div>
+        <div style={{ marginTop: 8, display: "flex", gap: 10 }}>
           <a href="#" onClick={(e) => (e.preventDefault(), onOpen(l.id))}>
             Ver detalle
           </a>
