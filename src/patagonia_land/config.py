@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     telegram_chat_id: str = ""
 
     api_token: str = ""
+    # Cookie de sesión solo por HTTPS. En desarrollo por http://localhost se puede poner COOKIE_SECURE=false.
+    cookie_secure: bool = True
 
     # Monitoreo: cuántas ausencias consecutivas (en corridas sanas) antes de marcar REMOVED.
     removal_missed_runs: int = 3

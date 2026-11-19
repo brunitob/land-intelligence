@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import re
+import secrets
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+import structlog
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.orm import Session
 
+from patagonia_land import auth as authn
 from patagonia_land import highlights as hl
 from patagonia_land import jobs
 from patagonia_land.config import get_settings, load_yaml
@@ -29,23 +32,101 @@ from patagonia_land.db.models import (
     SiteProfile,
     Source,
 )
-from patagonia_land.db.session import get_session
+from patagonia_land.db.session import get_session, session_scope
 from patagonia_land.geo.localities import LOCALITIES
 from patagonia_land.geo.localities import zones as zone_index
 
-app = FastAPI(title="Patagonia Land Intelligence", version="0.1.0")
+log = structlog.get_logger()
 
-
-def auth(authorization: str | None = Header(default=None)) -> None:
-    token = get_settings().api_token
-    if token and token != "change-me" and authorization != f"Bearer {token}":
-        raise HTTPException(401, "token inválido")
-
+_DEV = get_settings().api_token in ("", "change-me")
+# La documentación interactiva solo en desarrollo: en producción no se publica el mapa de la API.
+app = FastAPI(title="Patagonia Land Intelligence", version="0.1.0", docs_url="/docs" if _DEV else None,
+              redoc_url=None, openapi_url="/openapi.json" if _DEV else None)
 
 # scope="function": commit ANTES de responder. Con el default el commit corría después de enviar la respuesta y
 # un pedido inmediato del cliente (crear destacado → agregarle avisos) no veía lo recién creado (404).
 DB = Depends(get_session, scope="function")
+SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
+
+
+def auth_enabled() -> bool:
+    """Con API_TOKEN real (producción) todo pide sesión o token; en desarrollo (vacío/change-me) queda abierto."""
+    token = get_settings().api_token
+    return bool(token) and token != "change-me"
+
+
+def _cookie_name() -> str:
+    # Prefijo __Host-: el navegador exige Secure, Path=/ y sin Domain (no la puede pisar un subdominio).
+    return "__Host-land_session" if get_settings().cookie_secure else "land_session"
+
+
+def client_ip(request: Request) -> str:
+    # Caddy reemplaza X-Forwarded-For con la IP real del cliente (no confía en la que manda el navegador).
+    xff = request.headers.get("x-forwarded-for", "")
+    return (xff.split(",")[0].strip() or (request.client.host if request.client else "?"))[:64]
+
+
+def auth(request: Request, authorization: str | None = Header(default=None), s: Session = DB) -> None:
+    if not auth_enabled():
+        return
+    token = get_settings().api_token
+    if authorization and secrets.compare_digest(authorization, f"Bearer {token}"):
+        return  # acceso interno/CLI con el token
+    cookie = request.cookies.get(_cookie_name())
+    user = authn.session_user(s, cookie) if cookie else None
+    if not user:
+        raise HTTPException(401, "no autenticado")
+    # CSRF: además de SameSite=Strict, los cambios exigen un encabezado que otro sitio no puede mandar sin CORS.
+    if request.method not in SAFE_METHODS and request.headers.get("x-requested-with") != "fetch":
+        raise HTTPException(403, "pedido rechazado")
+    request.state.user = user.username
+
+
 AUTH = [Depends(auth)]
+
+
+# ----------------------------------------------------------------------------- login
+class LoginIn(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=256)
+
+
+@app.post("/auth/login")
+def login(body: LoginIn, request: Request, response: Response) -> dict[str, Any]:
+    if request.headers.get("x-requested-with") != "fetch":
+        raise HTTPException(403, "pedido rechazado")
+    ip = client_ip(request)
+    username = authn.normalize_username(body.username)
+    # Sesión propia: el intento fallido tiene que quedar guardado aunque la respuesta sea un error.
+    with session_scope() as s:
+        wait = authn.retry_after(s, username, ip)
+        if wait:
+            raise HTTPException(429, f"Demasiados intentos. Probá de nuevo en {max(1, wait // 60)} min.",
+                                headers={"Retry-After": str(wait)})
+        user = authn.authenticate(s, body.username, body.password, ip)
+        token = authn.create_session(s, user, ip, request.headers.get("user-agent")) if user else None
+    if not token:
+        log.warning("auth.login_failed", username=username, ip=ip)
+        raise HTTPException(401, "Usuario o contraseña incorrectos")
+    log.info("auth.login", username=username, ip=ip)
+    response.set_cookie(_cookie_name(), token, max_age=int(authn.SESSION_TTL.total_seconds()), httponly=True,
+                        secure=get_settings().cookie_secure, samesite="strict", path="/")
+    return {"username": username}
+
+
+@app.post("/auth/logout", status_code=204)
+def logout(request: Request, response: Response) -> None:
+    cookie = request.cookies.get(_cookie_name())
+    if cookie:
+        with session_scope() as s:
+            authn.end_session(s, cookie)
+    response.delete_cookie(_cookie_name(), path="/", secure=get_settings().cookie_secure, httponly=True,
+                           samesite="strict")
+
+
+@app.get("/auth/me", dependencies=AUTH)
+def me(request: Request) -> dict[str, Any]:
+    return {"username": getattr(request.state, "user", None), "auth_required": auth_enabled()}
 
 
 # ----------------------------------------------------------------------------- utilidades

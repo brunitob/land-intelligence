@@ -58,8 +58,6 @@ services:
   web:
     # Frontend (React) + Caddy: sirve la app y pasa /api/* a la API. Local: http://localhost:8501
     build: ./frontend
-    environment:
-      API_TOKEN: ${API_TOKEN:-}
     ports:
       - "8501:80"
     depends_on:

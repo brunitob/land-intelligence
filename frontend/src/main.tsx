@@ -1,9 +1,10 @@
-import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { StrictMode } from "react";
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
+import { StrictMode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, NavLink, Route, Routes } from "react-router-dom";
-import { api, Status } from "./api";
-import { ToastProvider } from "./components/ui";
+import { api, ApiError, Status } from "./api";
+import { Login } from "./components/Login";
+import { Loading, ToastProvider } from "./components/ui";
 import { FiltersProvider } from "./filters";
 import { ago, dateTime } from "./format";
 import { HighlightsPage } from "./pages/Highlights";
@@ -35,7 +36,60 @@ function StatusPill() {
   );
 }
 
-function App() {
+type Me = { username: string | null; auth_required: boolean };
+
+// Sin sesión válida muestra el login; si una sesión vence mientras se usa la app, vuelve al login.
+function AuthGate() {
+  const qc = useQueryClient();
+  const me = useQuery({
+    queryKey: ["me"],
+    queryFn: () => api.get<Me>("/auth/me"),
+    retry: false,
+    staleTime: Infinity,
+  });
+  useEffect(() => {
+    const onExpired = () => qc.setQueryData(["me"], null);
+    window.addEventListener("auth:required", onExpired);
+    return () => window.removeEventListener("auth:required", onExpired);
+  }, [qc]);
+  const unauth = (me.error instanceof ApiError && me.error.status === 401) || (me.isSuccess && me.data === null);
+  if (me.isLoading) return <Loading />;
+  if (unauth) {
+    return (
+      <Login
+        onLogin={() => {
+          qc.removeQueries({ predicate: (q) => q.queryKey[0] !== "me" });
+          me.refetch();
+        }}
+      />
+    );
+  }
+  return (
+    <FiltersProvider>
+      <App me={me.data ?? null} />
+    </FiltersProvider>
+  );
+}
+
+function UserMenu({ me }: { me: Me | null }) {
+  const qc = useQueryClient();
+  if (!me?.auth_required) return null;
+  const logout = async () => {
+    await api.post("/auth/logout").catch(() => undefined);
+    qc.setQueryData(["me"], null);
+    qc.removeQueries({ predicate: (q) => q.queryKey[0] !== "me" });
+  };
+  return (
+    <div className="user-menu">
+      <span>{me.username}</span>
+      <button className="btn ghost sm" onClick={logout}>
+        Salir
+      </button>
+    </div>
+  );
+}
+
+function App({ me }: { me: Me | null }) {
   const defaults = useQuery({ queryKey: ["search-defaults"], queryFn: () => api.get<Record<string, any>>("/search/defaults") });
   const maxMinutes = Number(defaults.data?.max_drive_minutes ?? 150);
   const tabs = [
@@ -63,6 +117,7 @@ function App() {
           ))}
         </nav>
         <StatusPill />
+        <UserMenu me={me} />
       </header>
       <main className="main">
         <Routes>
@@ -85,9 +140,7 @@ createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={qc}>
       <ToastProvider>
         <BrowserRouter>
-          <FiltersProvider>
-            <App />
-          </FiltersProvider>
+          <AuthGate />
         </BrowserRouter>
       </ToastProvider>
     </QueryClientProvider>

@@ -1,4 +1,4 @@
-# Frontend (React) compilado y servido por Caddy, que además pasa /api/* a la API con el token interno.
+# Frontend (React) compilado y servido por Caddy, que además pasa /api/* a la API.
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./

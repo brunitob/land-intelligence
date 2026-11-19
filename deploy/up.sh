@@ -3,7 +3,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [ -f .env ] || { echo "Falta .env (correr deploy/server-setup.sh)"; exit 1; }
-[ -f deploy/users.caddy ] || { echo "Falta la contraseña del sitio: deploy/set-password.sh"; exit 1; }
 git pull --ff-only
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --remove-orphans
 docker image prune -f >/dev/null

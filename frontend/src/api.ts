@@ -21,11 +21,16 @@ function qs(params?: Params): string {
 }
 
 async function request<T>(method: string, path: string, opts: { params?: Params; body?: unknown } = {}): Promise<T> {
+  const headers: Record<string, string> = { "X-Requested-With": "fetch" }; // anti-CSRF: la API lo exige
+  if (opts.body !== undefined) headers["Content-Type"] = "application/json";
   const res = await fetch(`/api${path}${qs(opts.params)}`, {
     method,
-    headers: opts.body !== undefined ? { "Content-Type": "application/json" } : undefined,
+    headers,
+    credentials: "same-origin",
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });
+  // Sesión vencida o cerrada: la app vuelve a la pantalla de ingreso.
+  if (res.status === 401 && path !== "/auth/login") window.dispatchEvent(new Event("auth:required"));
   if (!res.ok) {
     let msg = res.statusText;
     try {

@@ -1,8 +1,7 @@
 # Deploy en Hetzner (VPS con Docker)
 
 Todo corre igual que en local (`docker compose`). El servicio `web` (Caddy) es el único público: HTTPS
-automático, usuario y contraseña, sirve la app web (React, `frontend/`) y pasa `/api/*` a la API con el token
-interno. La base y la API no quedan expuestas a internet; solo `web` escucha en los puertos 80/443.
+automático, sirve la app web (React, `frontend/`) y pasa `/api/*` a la API, que pide login. La base y la API no quedan expuestas a internet; solo `web` escucha en los puertos 80/443.
 
 ## 1. Crear el servidor (en la consola de Hetzner)
 
@@ -39,12 +38,6 @@ nano /opt/land/.env      # ANTHROPIC_API_KEY, ORS_API_KEY, USER_AGENT con un con
 `SITE_ADDRESS` queda como `IP-con-guiones.sslip.io` (HTTPS válido sin comprar dominio). Si tenés dominio:
 creá un registro **A** `land.tudominio.com → IP` y poné ese nombre en `SITE_ADDRESS`.
 
-Usuario y contraseña del sitio:
-
-```bash
-/opt/land/deploy/set-password.sh
-```
-
 ## 3. Pasar tus datos actuales (una vez, desde tu Mac)
 
 Copia fuentes, avisos, historial de precios y destacados. Con Docker Desktop andando:
@@ -58,9 +51,20 @@ docker compose stop postgres
 Al terminar levanta todo en el servidor. Si preferís arrancar de cero, salteá este paso y corré
 `/opt/land/deploy/up.sh` en el servidor.
 
-## 4. Listo
+## 4. Crear tu usuario
 
-App: `https://<SITE_ADDRESS>` (pide el usuario y contraseña del paso 2).
+Con todo levantado, en el servidor:
+
+```bash
+/opt/land/deploy/set-password.sh
+```
+
+## 5. Listo
+
+App: `https://<SITE_ADDRESS>`, con pantalla de ingreso (usuario y contraseña; la guarda el gestor de
+contraseñas). Seguridad: contraseñas con scrypt, sesión en cookie `HttpOnly`/`Secure`/`SameSite=Strict`
+(30 días, vence a los 7 sin uso), protección CSRF, y tras 5 intentos fallidos por usuario (o 20 por IP) se
+bloquea 15 minutos.
 
 ## Día a día
 
@@ -71,7 +75,7 @@ App: `https://<SITE_ADDRESS>` (pide el usuario y contraseña del paso 2).
 | Ver logs | `... logs -f --tail 100 scraper-worker` (mismo prefijo) |
 | Backup manual | `ssh root@IP /opt/land/deploy/backup.sh` (los diarios quedan en `/opt/land/deploy/backups`, 14 días) |
 | Bajar un backup | `scp root@IP:/opt/land/deploy/backups/land-AAAAMMDD-HHMM.dump .` |
-| Cambiar contraseña | `ssh -t root@IP /opt/land/deploy/set-password.sh` y reiniciar `web` |
+| Crear usuario o cambiar contraseña | `ssh -t root@IP /opt/land/deploy/set-password.sh` (cierra las sesiones abiertas de ese usuario) |
 
 ## Notas
 
@@ -80,4 +84,4 @@ App: `https://<SITE_ADDRESS>` (pide el usuario y contraseña del paso 2).
   `ssh-keygen -t ed25519 -f ~/.ssh/land_deploy` en el servidor, cargar la `.pub` en GitHub →
   Settings → Deploy keys, y `git -C /opt/land remote set-url origin git@github.com:brunitob/land-intelligence.git`.
 - Las migraciones de la base corren solas al iniciar la API.
-- Nunca subas `/opt/land/.env` ni `deploy/users.caddy` a git (están en `.gitignore`).
+- Nunca subas `/opt/land/.env` a git (está en `.gitignore`).

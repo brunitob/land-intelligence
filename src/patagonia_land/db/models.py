@@ -351,3 +351,40 @@ class DriveTimeCache(Base):
     lon_e4: Mapped[int] = mapped_column(Integer, primary_key=True)
     minutes: Mapped[float | None] = mapped_column(Float)  # None = ORS respondió sin ruta (p. ej. sin camino)
     computed_at: Mapped[datetime] = _now()
+
+
+# ----------------------------------------------------------------------------- acceso a la app web
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True)
+    password_hash: Mapped[str] = mapped_column(Text)  # scrypt con sal propia (ver patagonia_land.auth)
+    created_at: Mapped[datetime] = _now()
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class UserSession(Base):
+    """Sesión del navegador. Se guarda solo el SHA-256 del token: la base filtrada no permite entrar."""
+
+    __tablename__ = "user_sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = _now()
+    last_seen_at: Mapped[datetime] = _now()
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ip: Mapped[str | None] = mapped_column(String(64))
+    user_agent: Mapped[str | None] = mapped_column(String(300))
+
+
+class LoginAttempt(Base):
+    """Intentos de login, para frenar fuerza bruta por usuario y por IP."""
+
+    __tablename__ = "login_attempts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), index=True)
+    ip: Mapped[str] = mapped_column(String(64), index=True)
+    success: Mapped[bool] = mapped_column(Boolean)
+    at: Mapped[datetime] = _now()

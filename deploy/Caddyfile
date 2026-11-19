@@ -1,26 +1,29 @@
 # HTTPS automático (Let's Encrypt) para SITE_ADDRESS, p. ej. land.tudominio.com o 1-2-3-4.sslip.io.
-# Todo el sitio pide usuario y contraseña (deploy/users.caddy, generado por deploy/set-password.sh).
-# Sirve el frontend compilado (/srv) y pasa /api/* a la API agregando el token interno: el navegador nunca lo ve.
+# Sirve el frontend compilado (/srv) y pasa /api/* a la API. El acceso lo controla la API con su propio login
+# (usuario y contraseña en la base, sesión por cookie segura); usuarios: deploy/set-password.sh.
 {$SITE_ADDRESS} {
 	encode zstd gzip
-	import /etc/caddy/users.caddy
+	request_body {
+		max_size 1MB
+	}
 	handle_path /api/* {
-		reverse_proxy api:8000 {
-			header_up Authorization "Bearer {$API_TOKEN}"
-		}
+		reverse_proxy api:8000
 	}
 	handle {
 		root * /srv
 		@assets path /assets/*
 		header @assets Cache-Control "public, max-age=31536000, immutable"
+		header /index.html Cache-Control "no-cache"
 		try_files {path} /index.html
 		file_server
 	}
 	header {
-		Strict-Transport-Security "max-age=31536000"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options nosniff
 		X-Frame-Options DENY
 		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 		-Server
 	}
 }
