@@ -350,6 +350,23 @@ class ListingReview(Base):
     reviewed_by: Mapped[str | None] = mapped_column(String(64))
 
 
+class WatchedUrl(Base):
+    """Ficha puntual en seguimiento: el worker la revisa periódicamente y la sección Seguimiento muestra sus cambios."""
+
+    __tablename__ = "watched_urls"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    url: Mapped[str] = mapped_column(Text, unique=True)
+    note: Mapped[str | None] = mapped_column(Text)
+    listing_id: Mapped[int | None] = mapped_column(ForeignKey("listings.id", ondelete="SET NULL"))
+    # pending | ok | blocked (403/captcha) | robots | gone (404/410) | error
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    last_error: Mapped[str | None] = mapped_column(Text)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    seen_at: Mapped[datetime] = _now()  # cambios posteriores a esto se muestran como "sin ver"
+    created_at: Mapped[datetime] = _now()
+
+
 class DriveTimeCache(Base):
     """Minutos de manejo aeropuerto → punto (coordenadas redondeadas a ~10 m). Evita repetir pedidos a ORS:
     los caminos no cambian entre corridas y muchos avisos comparten el centro de su localidad."""

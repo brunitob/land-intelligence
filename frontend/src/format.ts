@@ -74,7 +74,7 @@ export const CHANGE_LABELS: Record<string, string> = {
   title_changed: "Cambió título",
 };
 
-export const JOB_KIND: Record<string, string> = { crawl: "Crawl", inspect: "Inspección", geo: "Tiempos de manejo" };
+export const JOB_KIND: Record<string, string> = { crawl: "Crawl", inspect: "Inspección", geo: "Tiempos de manejo", watch: "Seguimiento" };
 export const JOB_STATUS: Record<string, string> = { queued: "En cola", running: "Corriendo", done: "Listo", failed: "Falló" };
 export const RUN_STATUS: Record<string, string> = { success: "OK", partial: "Parcial", failed: "Falló", running: "Corriendo" };
 export const REGIONS: Record<string, string> = { bariloche: "Bariloche", chapelco: "Chapelco", esquel: "Esquel" };

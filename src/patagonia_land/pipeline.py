@@ -264,6 +264,44 @@ def _find_existing(s: Session, source_id: str, e: ExtractedListing) -> Listing |
     return s.scalar(select(Listing).where(Listing.source_id == source_id, Listing.canonical_url == e.canonical_url))
 
 
+def upsert_listing(s: Session, source_id: str, e: ExtractedListing, raw_html: str, run_id: int | None,
+                   now: datetime) -> tuple[Listing, str]:
+    """Crea o actualiza un aviso; si cambió, guarda snapshot y registra los cambios. → (aviso, created|updated|unchanged)."""
+    payload = e.snapshot_payload()
+    h = content_hash(payload)
+    listing = _find_existing(s, source_id, e)
+    if listing is None:
+        listing = Listing(source_id=source_id, canonical_url=e.canonical_url, url=e.url, status="active",
+                          first_seen_at=now, last_seen_at=now, last_checked_at=now, missed_runs=0)
+        _apply(listing, e)
+        listing.content_hash = h
+        s.add(listing)
+        s.flush()
+        s.add(ListingSnapshot(listing_id=listing.id, crawl_run_id=run_id, content_hash=h, data=payload,
+                              raw_html_gz=gzip.compress(raw_html.encode("utf-8", "ignore"))))
+        s.add(ListingChange(listing_id=listing.id, change_type=ChangeType.NEW_LISTING,
+                            new_value={"price": e.price, "currency": e.currency, "area_m2": e.area_m2}))
+        return listing, "created"
+    if listing.status == "removed":
+        s.add(ListingChange(listing_id=listing.id, change_type=ChangeType.RELISTED,
+                            new_value={"price": e.price, "currency": e.currency}))
+    listing.status = "active"
+    listing.missed_runs = 0
+    listing.last_seen_at = listing.last_checked_at = now
+    if listing.content_hash == h:
+        return listing, "unchanged"  # solo last_checked_at; sin snapshot duplicado
+    last = s.scalar(select(ListingSnapshot).where(ListingSnapshot.listing_id == listing.id)
+                    .order_by(ListingSnapshot.captured_at.desc()))
+    for ch in diff_snapshots(last.data if last else {}, payload):
+        s.add(ListingChange(listing_id=listing.id, change_type=ch.change_type, old_value=ch.old_value,
+                            new_value=ch.new_value, pct_change=ch.pct_change))
+    s.add(ListingSnapshot(listing_id=listing.id, crawl_run_id=run_id, content_hash=h, data=payload,
+                          raw_html_gz=gzip.compress(raw_html.encode("utf-8", "ignore"))))
+    _apply(listing, e)
+    listing.content_hash = h
+    return listing, "updated"
+
+
 def _persist_listings(s: Session, source_id: str, run_id: int, extracted: list[tuple[ExtractedListing, str]],
                       disc: DiscoveryResult) -> dict[str, Any]:
     settings = get_settings()
@@ -272,41 +310,10 @@ def _persist_listings(s: Session, source_id: str, run_id: int, extracted: list[t
     created = updated = unchanged = 0
     touched: list[Listing] = []
     for e, raw_html in extracted:
-        payload = e.snapshot_payload()
-        h = content_hash(payload)
-        listing = _find_existing(s, source_id, e)
-        if listing is None:
-            listing = Listing(source_id=source_id, canonical_url=e.canonical_url, url=e.url, status="active",
-                              first_seen_at=now, last_seen_at=now, last_checked_at=now, missed_runs=0)
-            _apply(listing, e)
-            listing.content_hash = h
-            s.add(listing)
-            s.flush()
-            s.add(ListingSnapshot(listing_id=listing.id, crawl_run_id=run_id, content_hash=h, data=payload,
-                                  raw_html_gz=gzip.compress(raw_html.encode("utf-8", "ignore"))))
-            s.add(ListingChange(listing_id=listing.id, change_type=ChangeType.NEW_LISTING,
-                                new_value={"price": e.price, "currency": e.currency, "area_m2": e.area_m2}))
-            created += 1
-        else:
-            if listing.status == "removed":
-                s.add(ListingChange(listing_id=listing.id, change_type=ChangeType.RELISTED,
-                                    new_value={"price": e.price, "currency": e.currency}))
-            listing.status = "active"
-            listing.missed_runs = 0
-            listing.last_seen_at = listing.last_checked_at = now
-            if listing.content_hash != h:
-                last = s.scalar(select(ListingSnapshot).where(ListingSnapshot.listing_id == listing.id)
-                                .order_by(ListingSnapshot.captured_at.desc()))
-                for ch in diff_snapshots(last.data if last else {}, payload):
-                    s.add(ListingChange(listing_id=listing.id, change_type=ch.change_type, old_value=ch.old_value,
-                                        new_value=ch.new_value, pct_change=ch.pct_change))
-                s.add(ListingSnapshot(listing_id=listing.id, crawl_run_id=run_id, content_hash=h, data=payload,
-                                      raw_html_gz=gzip.compress(raw_html.encode("utf-8", "ignore"))))
-                _apply(listing, e)
-                listing.content_hash = h
-                updated += 1
-            else:
-                unchanged += 1  # solo last_checked_at; sin snapshot duplicado
+        listing, outcome = upsert_listing(s, source_id, e, raw_html, run_id, now)
+        created += outcome == "created"
+        updated += outcome == "updated"
+        unchanged += outcome == "unchanged"
         seen_ids.add(listing.id)
         touched.append(listing)
 

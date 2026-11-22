@@ -37,8 +37,8 @@ def claim_next(session: Session) -> Job | None:
     now = datetime.now(UTC)
     job = session.scalar(select(Job).where(Job.status == "queued",
                                            or_(Job.not_before.is_(None), Job.not_before <= now))
-                         # Inspecciones (fuente recién agregada, cortas) antes que los crawls diarios.
-                         .order_by(case((Job.kind == "inspect", 0), else_=1), Job.created_at)
+                         # Inspecciones y seguimiento de fichas (cortos) antes que los crawls diarios.
+                         .order_by(case((Job.kind.in_(("inspect", "watch")), 0), else_=1), Job.created_at)
                          .with_for_update(skip_locked=True).limit(1))
     if job:
         job.status = "running"

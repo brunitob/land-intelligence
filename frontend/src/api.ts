@@ -192,6 +192,22 @@ export interface Status {
   queued: number;
   running: number;
   running_jobs: { kind: string; source_id: string | null }[];
+  watch_unseen: number;
+}
+
+export interface Watched {
+  id: number;
+  url: string;
+  note: string | null;
+  listing_id: number | null;
+  status: "pending" | "ok" | "blocked" | "robots" | "gone" | "error";
+  last_error: string | null;
+  last_checked_at: string | null;
+  seen_at: string;
+  created_at: string;
+  listing: Listing | null;
+  changes: Change[];
+  unseen: number;
 }
 
 export interface DedupItem {

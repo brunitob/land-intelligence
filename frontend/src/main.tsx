@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
-import { StrictMode, useEffect } from "react";
+import { ReactNode, StrictMode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, NavLink, Route, Routes } from "react-router-dom";
 import { api, ApiError, Status } from "./api";
@@ -10,6 +10,7 @@ import { ago, dateTime } from "./format";
 import { HighlightsPage } from "./pages/Highlights";
 import { MapPage } from "./pages/Map";
 import { MonitorPage } from "./pages/Monitor";
+import { WatchPage } from "./pages/Watch";
 import { PropertiesPage } from "./pages/Properties";
 import { SourcesPage } from "./pages/Sources";
 import { StatsPage } from "./pages/Stats";
@@ -92,9 +93,17 @@ function UserMenu({ me }: { me: Me | null }) {
 function App({ me }: { me: Me | null }) {
   const defaults = useQuery({ queryKey: ["search-defaults"], queryFn: () => api.get<Record<string, any>>("/search/defaults") });
   const maxMinutes = Number(defaults.data?.max_drive_minutes ?? 150);
-  const tabs = [
+  const status = useQuery({ queryKey: ["status"], queryFn: () => api.get<Status>("/status"), refetchInterval: 15_000 });
+  const unseen = status.data?.watch_unseen ?? 0;
+  const tabs: [string, ReactNode][] = [
     ["/propiedades", "Propiedades"],
     ["/destacados", "⭐ Destacados"],
+    [
+      "/seguimiento",
+      <>
+        📌 Seguimiento{unseen > 0 && <span className="nav-badge" title="Fichas con cambios sin ver">{unseen}</span>}
+      </>,
+    ],
     ["/estadisticas", "Estadísticas"],
     ["/mapa", "Mapa"],
     ["/fuentes", "Fuentes"],
@@ -111,7 +120,7 @@ function App({ me }: { me: Me | null }) {
         </div>
         <nav className="nav">
           {tabs.map(([to, label]) => (
-            <NavLink key={to} to={to}>
+            <NavLink key={to as string} to={to as string}>
               {label}
             </NavLink>
           ))}
@@ -128,6 +137,7 @@ function App({ me }: { me: Me | null }) {
           <Route path="/mapa" element={<MapPage />} />
           <Route path="/fuentes" element={<SourcesPage />} />
           <Route path="/monitoreo" element={<MonitorPage />} />
+          <Route path="/seguimiento" element={<WatchPage />} />
           <Route path="*" element={<Navigate to="/propiedades" replace />} />
         </Routes>
       </main>

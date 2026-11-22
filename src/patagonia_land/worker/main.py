@@ -12,6 +12,7 @@ from patagonia_land import jobs
 from patagonia_land.db.session import session_scope
 from patagonia_land.geo.routing import run_geo
 from patagonia_land.pipeline import run_crawl, run_inspect
+from patagonia_land.watch import run_watch
 
 log = structlog.get_logger()
 _stop = False
@@ -28,6 +29,8 @@ async def run_job(job_id: int, kind: str, source_id: str | None) -> None:
             result = await run_inspect(source_id, job_id)
         elif kind == "crawl":
             result = await run_crawl(source_id, job_id)
+        elif kind == "watch":
+            result = await run_watch(job_id)
         elif kind == "geo":
             result = await asyncio.to_thread(run_geo)
         else:

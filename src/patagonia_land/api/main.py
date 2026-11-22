@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import re
 import secrets
+from datetime import UTC, datetime
 from typing import Any, Literal
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import structlog
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
@@ -33,6 +34,7 @@ from patagonia_land.db.models import (
     PropertyGeoAnalysis,
     SiteProfile,
     Source,
+    WatchedUrl,
 )
 from patagonia_land.db.session import get_session, session_scope
 from patagonia_land.geo.localities import LOCALITIES
@@ -282,7 +284,104 @@ def status(s: Session = DB) -> dict[str, Any]:
                             .group_by(Job.status)).all())
     running = s.execute(select(Job.kind, Job.source_id).where(Job.status == "running")).all()
     return {"last_run_at": last, "queued": counts.get("queued", 0), "running": counts.get("running", 0),
-            "running_jobs": [{"kind": k, "source_id": sid} for k, sid in running]}
+            "running_jobs": [{"kind": k, "source_id": sid} for k, sid in running],
+            "watch_unseen": _watch_unseen_count(s)}
+
+
+# ----------------------------------------------------------------------------- seguimiento de fichas
+_TRACKING = re.compile(r"^(utm_|n_|fbclid$|gclid$|mc_)")
+_SEEN_TYPES_IGNORED = ("new_listing",)  # el alta del aviso no es un "cambio" para quien lo sigue
+
+
+def _clean_url(url: str) -> str:
+    p = urlsplit(url.strip())
+    query = urlencode([(k, v) for k, v in parse_qsl(p.query, keep_blank_values=True) if not _TRACKING.match(k)])
+    return urlunsplit((p.scheme, p.netloc, p.path, query, ""))
+
+
+def _unseen_changes(s: Session, w: WatchedUrl) -> list[ListingChange]:
+    if not w.listing_id:
+        return []
+    return list(s.scalars(select(ListingChange).where(
+        ListingChange.listing_id == w.listing_id, ListingChange.detected_at > w.seen_at,
+        ListingChange.change_type.not_in(_SEEN_TYPES_IGNORED)).order_by(ListingChange.detected_at.desc())))
+
+
+def _watch_unseen_count(s: Session) -> int:
+    return s.scalar(select(func.count(func.distinct(WatchedUrl.id))).join(
+        ListingChange, ListingChange.listing_id == WatchedUrl.listing_id).where(
+        ListingChange.detected_at > WatchedUrl.seen_at,
+        ListingChange.change_type.not_in(_SEEN_TYPES_IGNORED))) or 0
+
+
+class WatchIn(BaseModel):
+    urls: list[HttpUrl] = Field(min_length=1, max_length=200)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class WatchSeen(BaseModel):
+    ids: list[int] | None = None  # None = todas
+
+
+@app.get("/watch", dependencies=AUTH)
+def list_watch(s: Session = DB) -> list[dict[str, Any]]:
+    out = []
+    for w in s.scalars(select(WatchedUrl).order_by(WatchedUrl.created_at, WatchedUrl.id)):
+        r = _row(w)
+        lst = s.get(Listing, w.listing_id) if w.listing_id else None
+        r["listing"] = _row(lst, exclude=("data", "provenance", "description")) if lst else None
+        r["changes"] = [_row(c) for c in s.scalars(select(ListingChange).where(
+            ListingChange.listing_id == w.listing_id).order_by(ListingChange.detected_at.desc()).limit(20))] \
+            if w.listing_id else []
+        r["unseen"] = len(_unseen_changes(s, w))
+        out.append(r)
+    return out
+
+
+@app.post("/watch", dependencies=AUTH, status_code=201)
+def add_watch(body: WatchIn, s: Session = DB) -> dict[str, Any]:
+    added, existing, rejected = [], [], []
+    for raw in body.urls:
+        url = _clean_url(str(raw))
+        try:
+            assert_public_url(url)
+        except FetchError as exc:
+            rejected.append({"url": url, "error": str(exc)})
+            continue
+        if url in added or s.scalar(select(WatchedUrl).where(WatchedUrl.url == url)):
+            existing.append(url)
+            continue
+        s.add(WatchedUrl(url=url, note=body.note, status="pending"))
+        added.append(url)
+    s.flush()
+    job = jobs.enqueue(s, "watch", None) if added else None
+    return {"added": added, "existing": existing, "rejected": rejected, "job_id": job.id if job else None}
+
+
+@app.delete("/watch/{watch_id}", dependencies=AUTH, status_code=204)
+def delete_watch(watch_id: int, s: Session = DB) -> None:
+    w = s.get(WatchedUrl, watch_id)
+    if not w:
+        raise HTTPException(404, "no está en seguimiento")
+    s.delete(w)
+
+
+@app.post("/watch/seen", dependencies=AUTH)
+def watch_seen(body: WatchSeen, s: Session = DB) -> dict[str, Any]:
+    q = select(WatchedUrl)
+    if body.ids is not None:
+        q = q.where(WatchedUrl.id.in_(body.ids))
+    n = 0
+    for w in s.scalars(q):
+        w.seen_at = datetime.now(UTC)
+        n += 1
+    return {"seen": n}
+
+
+@app.post("/watch/check", dependencies=AUTH)
+def watch_check(s: Session = DB) -> dict[str, Any]:
+    """Revisar ahora (además de la revisión automática cada 6 h)."""
+    return {"job_id": jobs.enqueue(s, "watch", None).id}
 
 
 # ----------------------------------------------------------------------------- jobs

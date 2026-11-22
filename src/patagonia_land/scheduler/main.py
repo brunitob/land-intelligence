@@ -9,10 +9,11 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from sqlalchemy import func, or_, select
 
 from patagonia_land import jobs
-from patagonia_land.db.models import CrawlRun, Job, Source
+from patagonia_land.db.models import CrawlRun, Job, Source, WatchedUrl
 from patagonia_land.db.session import session_scope
 
 log = structlog.get_logger()
+WATCH_EVERY_HOURS = 6  # fichas en seguimiento: 4 visitas por día a cada una
 STALE_AFTER = timedelta(hours=5)  # > máx. de una corrida (4 h, fuentes lentas por robots.txt)
 
 
@@ -32,6 +33,13 @@ def enqueue_geo() -> None:
         jobs.enqueue(s, "geo", None)
 
 
+def enqueue_watch() -> None:
+    """Revisa las fichas en seguimiento (sección Seguimiento)."""
+    with session_scope() as s:
+        if s.scalar(select(func.count()).select_from(WatchedUrl)):
+            jobs.enqueue(s, "watch", None)
+
+
 def recover_stale_jobs() -> None:
     with session_scope() as s:
         for job in s.scalars(select(Job).where(Job.status == "running",
@@ -49,6 +57,8 @@ def main() -> None:
     sched.add_job(enqueue_due_crawls, "interval", minutes=15, next_run_time=datetime.now(UTC))
     sched.add_job(recover_stale_jobs, "interval", minutes=30)
     sched.add_job(enqueue_geo, "interval", hours=6, next_run_time=datetime.now(UTC) + timedelta(minutes=5))
+    sched.add_job(enqueue_watch, "interval", hours=WATCH_EVERY_HOURS,
+                  next_run_time=datetime.now(UTC) + timedelta(minutes=2))
     log.info("scheduler.start")
     sched.start()
 
