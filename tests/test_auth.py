@@ -28,6 +28,12 @@ def secured(monkeypatch):
 
     monkeypatch.setattr(get_settings(), "api_token", "token-de-prueba")
     monkeypatch.setattr(get_settings(), "cookie_secure", False)  # TestClient habla http
+    # Base de TEST: sin esto, correr la suite varias veces en 15 min llega al tope de fallos por IP (429).
+    from sqlalchemy import text
+
+    from patagonia_land.db.session import session_scope
+    with session_scope() as s:
+        s.execute(text("TRUNCATE login_attempts"))
 
 
 @pytest.fixture
