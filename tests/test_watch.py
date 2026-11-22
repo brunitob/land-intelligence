@@ -80,3 +80,10 @@ def test_add_watch_cleans_tracking_and_dedups(monkeypatch):
     with session_scope() as s:
         s.execute(text("TRUNCATE watched_urls RESTART IDENTITY"))
         s.execute(text("DELETE FROM jobs WHERE kind = 'watch'"))
+
+
+def test_redirect_to_home_means_gone():
+    from patagonia_land.watch import _redirected_home
+    assert _redirected_home("https://x.test/p/123-lote", "https://x.test/")
+    assert not _redirected_home("https://x.test/p/123-lote", "https://x.test/p/123-lote-en-venta")
+    assert not _redirected_home("https://x.test/", "https://x.test/")

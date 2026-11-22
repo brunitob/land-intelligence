@@ -37,6 +37,10 @@ def _host(url: str) -> str:
     return urlsplit(url).netloc.lower().removeprefix("www.")
 
 
+def _redirected_home(requested: str, final: str) -> bool:
+    return urlsplit(final).path.strip("/") == "" and urlsplit(requested).path.strip("/") != ""
+
+
 def source_for(s: Session, url: str) -> Source:
     host = _host(url)
     for src in s.scalars(select(Source)):
@@ -73,6 +77,11 @@ async def run_watch(job_id: int | None = None, fetcher_factory: Any = Fetcher, u
                 res = await f.get(url)
                 if res.status in (404, 410):
                     status, error = "gone", f"HTTP {res.status}: el aviso ya no está publicado"
+                elif _redirected_home(url, res.url):
+                    # Muchos sitios (p. ej. Tokko) mandan a la portada cuando el aviso se dio de baja.
+                    status, error = "gone", "redirige a la página principal: el aviso ya no está publicado"
+                elif res.status in (405, 406, 429, 451):
+                    status, error = "blocked", f"HTTP {res.status}: el sitio rechaza visitas automáticas"
                 elif res.status >= 400:
                     status, error = "error", f"HTTP {res.status}"
                 else:
